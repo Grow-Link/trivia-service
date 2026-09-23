@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: trivia
+      POSTGRES_USER: growlink
+      POSTGRES_PASSWORD: growlink
+    ports:
+      - "5436:5432"
+    volumes:
+      - trivia_data:/var/lib/postgresql/data
+
+volumes:
+  trivia_data:

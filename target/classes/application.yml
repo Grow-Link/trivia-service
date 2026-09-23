@@ -1,0 +1,20 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: trivia-service
+  datasource:
+    url: jdbc:postgresql://localhost:5436/trivia
+    username: growlink
+    password: growlink
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  jackson:
+    default-property-inclusion: non_null
+
+logging:
+  level:
+    com.growlink.trivia: INFO
