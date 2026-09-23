@@ -25,7 +25,7 @@ Unirse e iniciar es por WebSocket, no por REST:
 - mandas a `/app/salas/{codigo}/unirse` con `{usuarioId, nombre}`
 - mandas a `/app/salas/{codigo}/iniciar` cuando ya hay 2 o mas
 
-## Por que el UPDATE atomico para iniciar
+## Por qué el UPDATE atomico para iniciar
 
 Es el mismo truco que usamos para los cupos de las oportunidades en el
 proyecto viejo. Si dos personas le dan a iniciar casi al mismo tiempo, el
