@@ -59,10 +59,55 @@ class SalaWebSocketIntegrationTest {
         Map<String, Object> despuesDeIniciar = poll(mensajes);
         assertThat(despuesDeIniciar.get("estado")).isEqualTo("EN_CURSO");
 
+        // apenas inicia, tambien se manda la primera pregunta
+        Map<String, Object> primeraPregunta = poll(mensajes);
+        assertThat(primeraPregunta.get("type")).isEqualTo("PREGUNTA");
+        assertThat(primeraPregunta.get("indice")).isEqualTo(0);
+
         // alguien que llega tarde ya no se puede unir
         session.send("/app/salas/" + codigo + "/unirse", Map.of("usuarioId", 3, "nombre", "Carla"));
         Map<String, Object> error = poll(mensajes);
         assertThat(error.get("type")).isEqualTo("ERROR");
+    }
+
+    @Test
+    void juegaUnaPartidaCompletaDePrincipioAFin() throws Exception {
+        String codigo = crearSala(); // BACKEND, 5 preguntas, 10 segundos
+
+        BlockingQueue<Map<String, Object>> mensajes = new LinkedBlockingQueue<>();
+        StompSession session = conectar();
+        session.subscribe("/topic/salas/" + codigo, new QueueFrameHandler(mensajes));
+
+        session.send("/app/salas/" + codigo + "/unirse", Map.of("usuarioId", 2, "nombre", "Beto"));
+        poll(mensajes); // SALA_UPDATE con los 2 participantes
+
+        session.send("/app/salas/" + codigo + "/iniciar", Map.of());
+        poll(mensajes); // SALA_UPDATE en EN_CURSO
+
+        for (int indice = 0; indice < 5; indice++) {
+            Map<String, Object> pregunta = poll(mensajes);
+            assertThat(pregunta.get("type")).isEqualTo("PREGUNTA");
+            assertThat(pregunta.get("indice")).isEqualTo(indice);
+            assertThat((List<?>) pregunta.get("opciones")).hasSize(4);
+            assertThat(pregunta.get("enviadaEnEpochMs")).isNotNull();
+
+            // las preguntas sembradas siempre tienen la opcion 0 como correcta
+            session.send("/app/salas/" + codigo + "/responder", Map.of("usuarioId", 1, "indice", indice, "opcionElegida", 0));
+            session.send("/app/salas/" + codigo + "/responder", Map.of("usuarioId", 2, "indice", indice, "opcionElegida", 0));
+
+            Map<String, Object> leaderboard = poll(mensajes);
+            assertThat(leaderboard.get("type")).isEqualTo("LEADERBOARD");
+            assertThat((List<?>) leaderboard.get("ranking")).hasSize(2);
+
+            if (indice < 4) {
+                continue; // la siguiente vuelta del for ya espera la proxima PREGUNTA
+            }
+
+            Map<String, Object> resultados = poll(mensajes);
+            assertThat(resultados.get("type")).isEqualTo("RESULTADOS_FINALES");
+            assertThat(resultados.get("ganadorUsuarioId")).isIn(1, 2);
+            assertThat((List<?>) resultados.get("ranking")).hasSize(2);
+        }
     }
 
     @Test

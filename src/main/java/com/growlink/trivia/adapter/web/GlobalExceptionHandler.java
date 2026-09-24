@@ -1,6 +1,8 @@
 package com.growlink.trivia.adapter.web;
 
 import com.growlink.trivia.application.FaltanParticipantesException;
+import com.growlink.trivia.application.JuegoNoDisponibleException;
+import com.growlink.trivia.application.NoHayPreguntasSuficientesException;
 import com.growlink.trivia.application.SalaNoEncontradaException;
 import com.growlink.trivia.application.SalaYaEmpezoException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -23,7 +25,9 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorBody(e.getMessage()));
     }
 
-    @ExceptionHandler({SalaYaEmpezoException.class, FaltanParticipantesException.class, DataIntegrityViolationException.class})
+    @ExceptionHandler({SalaYaEmpezoException.class, FaltanParticipantesException.class,
+            DataIntegrityViolationException.class, JuegoNoDisponibleException.class,
+            NoHayPreguntasSuficientesException.class})
     public ResponseEntity<ErrorBody> handleConflicto(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorBody(e.getMessage()));
     }

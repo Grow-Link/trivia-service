@@ -19,4 +19,9 @@ public interface SalaTriviaRepository extends JpaRepository<SalaTrivia, Long> {
     @Modifying
     @Query("UPDATE SalaTrivia s SET s.estado = 'EN_CURSO' WHERE s.id = :id AND s.estado = 'ESPERANDO'")
     int intentarIniciar(@Param("id") Long id);
+
+    // mismo patron para el cierre, asi no se finaliza la sala dos veces
+    @Modifying
+    @Query("UPDATE SalaTrivia s SET s.estado = 'FINALIZADA' WHERE s.id = :id AND s.estado = 'EN_CURSO'")
+    int intentarFinalizar(@Param("id") Long id);
 }
