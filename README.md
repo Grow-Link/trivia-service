@@ -22,31 +22,19 @@ Las demas categorias todavia no tienen preguntas.
 | POST | /api/salas | Crea la sala, el host ya queda adentro |
 | GET | /api/salas/{codigo} | Ver el estado de una sala |
 
-Todo lo demas es por WebSocket, en `ws://localhost:8085/ws`, escuchando
-`/topic/salas/{codigo}`:
+Unirse e iniciar es por WebSocket, no por REST:
 
-| Mandas a | Con que | Que responde la sala |
-|---|---|---|
-| /app/salas/{codigo}/unirse | {usuarioId, nombre} | SALA_UPDATE |
-| /app/salas/{codigo}/iniciar | nada | SALA_UPDATE y luego la primera PREGUNTA |
-| /app/salas/{codigo}/responder | {usuarioId, indice, opcionElegida} | nada hasta que todos respondan, y ahi manda LEADERBOARD y la siguiente PREGUNTA (o RESULTADOS_FINALES si era la ultima) |
+- te conectas a `ws://localhost:8085/ws`
+- te suscribes a `/topic/salas/{codigo}` para escuchar lo que pasa
+- mandas a `/app/salas/{codigo}/unirse` con `{usuarioId, nombre}`
+- mandas a `/app/salas/{codigo}/iniciar` cuando ya hay 2 o mas
 
-## Los dos lugares donde hay condiciones de carrera de verdad
+## Por que el UPDATE atomico para iniciar
 
-**Quien inicia la partida.** Mismo truco que en los cupos de las
-oportunidades del proyecto viejo: un solo UPDATE con el estado esperado en
-el WHERE. Si dos le dan a iniciar casi al mismo tiempo, solo una peticion
-de verdad arranca.
-
-**Quien responde primero una pregunta, y cuando avanzar de pregunta.** Aqui
-hay dos problemas al mismo tiempo: saber quien contesto primero, y saber
-cuando ya respondieron todos para avanzar. Para lo primero usamos el mismo
-truco del UPDATE con condicion en el WHERE. Para lo segundo no alcanza con
-eso solo, porque hay que contar cuantos respondieron y esa cuenta se puede
-leer mal si dos respuestas llegan casi juntas. Por eso ahi se usa un lock
-de fila (SELECT FOR UPDATE) que obliga a que las respuestas de la misma
-pregunta se procesen una por una, sin que dos peticiones alcancen a avanzar
-la pregunta al mismo tiempo.
+Es el mismo truco que usamos para los cupos de las oportunidades en el
+proyecto viejo. Si dos personas le dan a iniciar casi al mismo tiempo, el
+UPDATE con el estado esperado en el WHERE hace que solo una de las dos
+peticiones de verdad arranque la partida. No hace falta ningun lock a mano.
 
 ## Pruebas
 
