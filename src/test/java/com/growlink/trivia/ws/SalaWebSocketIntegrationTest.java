@@ -72,7 +72,7 @@ class SalaWebSocketIntegrationTest {
 
     @Test
     void juegaUnaPartidaCompletaDePrincipioAFin() throws Exception {
-        String codigo = crearSala(); // BACKEND, 5 preguntas, 10 segundos
+        String codigo = crearSala(); // INGENIERIA_SISTEMAS, 5 preguntas, 10 segundos
 
         BlockingQueue<Map<String, Object>> mensajes = new LinkedBlockingQueue<>();
         StompSession session = conectar();
@@ -126,7 +126,7 @@ class SalaWebSocketIntegrationTest {
     private String crearSala() {
         RestTemplate rest = new RestTemplate();
         Map<String, Object> body = Map.of(
-                "categoria", "BACKEND",
+                "categoria", "INGENIERIA_SISTEMAS",
                 "hostUsuarioId", 1,
                 "hostNombre", "Ana",
                 "numPreguntas", 5,

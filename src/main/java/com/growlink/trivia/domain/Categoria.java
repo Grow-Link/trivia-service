@@ -4,11 +4,14 @@ package com.growlink.trivia.domain;
 // como son servicios distintos, cada uno tiene su propia copia del enum
 // si algun dia agregan una categoria nueva hay que agregarla en los dos lados
 public enum Categoria {
-    BACKEND,
-    FRONTEND,
-    BASES_DE_DATOS,
-    DEVOPS,
-    SEGURIDAD,
-    FUNDAMENTOS,
-    PYTHON
+    INGENIERIA_SISTEMAS,
+    INGENIERIA_CIVIL,
+    INGENIERIA_INDUSTRIAL,
+    INGENIERIA_ELECTRONICA,
+    INGENIERIA_MECANICA,
+    INGENIERIA_AMBIENTAL,
+    MATEMATICAS,
+    ADMINISTRACION_EMPRESAS,
+    IDIOMAS,
+    DERECHO
 }

@@ -12,7 +12,7 @@ docker compose up -d   # Postgres en localhost:5436
 mvn spring-boot:run    # arranca en localhost:8085
 ```
 
-Al arrancar se siembran preguntas de prueba, 5 de BACKEND y 5 de FRONTEND.
+Al arrancar se siembran preguntas de prueba: 5 de INGENIERIA_SISTEMAS, 4 de IDIOMAS y 4 de DERECHO.
 Las demas categorias todavia no tienen preguntas.
 
 ## Endpoints

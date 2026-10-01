@@ -41,7 +41,7 @@ class JuegoConcurrencyTest {
 
     @Test
     void quinceUsuariosSeUnenALaVezSinPerderNiDuplicarANadie() throws Exception {
-        SalaTrivia sala = salaService.crear(Categoria.BACKEND, 1L, "Ana", 5, 10);
+        SalaTrivia sala = salaService.crear(Categoria.INGENIERIA_SISTEMAS, 1L, "Ana", 5, 10);
 
         int contendientes = 15;
         ExecutorService pool = Executors.newFixedThreadPool(contendientes);
@@ -72,7 +72,7 @@ class JuegoConcurrencyTest {
 
     @Test
     void diezUsuariosRespondenALaVezYSoloUnoGanaElOrden() throws Exception {
-        SalaTrivia sala = salaService.crear(Categoria.BACKEND, 1L, "Ana", 5, 10);
+        SalaTrivia sala = salaService.crear(Categoria.INGENIERIA_SISTEMAS, 1L, "Ana", 5, 10);
 
         // Ana la host ya es participante desde que se creo la sala (1L)
         // le sumamos 9 mas para tener 10 participantes en total
