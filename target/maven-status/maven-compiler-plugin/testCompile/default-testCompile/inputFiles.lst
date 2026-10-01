@@ -1,2 +1,3 @@
-C:\Users\maria\Downloads\trivia-service\src\test\java\com\growlink\trivia\service\JuegoConcurrencyTest.java
-C:\Users\maria\Downloads\trivia-service\src\test\java\com\growlink\trivia\ws\SalaWebSocketIntegrationTest.java
+/home/wombitofurry/Documents/ARSW/Project/trivia-service/src/test/java/com/growlink/trivia/service/JuegoConcurrencyTest.java
+/home/wombitofurry/Documents/ARSW/Project/trivia-service/src/test/java/com/growlink/trivia/web/PreguntaControllerTest.java
+/home/wombitofurry/Documents/ARSW/Project/trivia-service/src/test/java/com/growlink/trivia/ws/SalaWebSocketIntegrationTest.java

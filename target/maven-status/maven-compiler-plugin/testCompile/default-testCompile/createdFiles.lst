@@ -1,4 +1,1 @@
-com\growlink\trivia\service\JuegoConcurrencyTest.class
-com\growlink\trivia\ws\SalaWebSocketIntegrationTest$1.class
-com\growlink\trivia\ws\SalaWebSocketIntegrationTest$QueueFrameHandler.class
-com\growlink\trivia\ws\SalaWebSocketIntegrationTest.class
+com/growlink/trivia/web/PreguntaControllerTest.class

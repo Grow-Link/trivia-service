@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.growlink.trivia.ws.SalaWebSocketIntegrationTest" time="1.416" tests="3" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.growlink.trivia.web.PreguntaControllerTest" time="6.042" tests="5" errors="0" skipped="0" failures="0">
   <properties>
     <property name="java.specification.version" value="21"/>
     <property name="sun.jnu.encoding" value="UTF-8"/>
@@ -7,7 +7,6 @@
     <property name="java.vm.vendor" value="Ubuntu"/>
     <property name="sun.arch.data.model" value="64"/>
     <property name="java.vendor.url" value="https://ubuntu.com/"/>
-    <property name="catalina.useNaming" value="false"/>
     <property name="user.timezone" value="America/Bogota"/>
     <property name="org.jboss.logging.provider" value="slf4j"/>
     <property name="os.name" value="Linux"/>
@@ -45,15 +44,13 @@
     <property name="localRepository" value="/home/wombitofurry/.m2/repository"/>
     <property name="java.vendor.url.bug" value="https://bugs.launchpad.net/ubuntu/+source/openjdk-21"/>
     <property name="java.io.tmpdir" value="/tmp"/>
-    <property name="com.zaxxer.hikari.pool_number" value="3"/>
-    <property name="catalina.home" value="/tmp/tomcat.0.8035863000399307061"/>
+    <property name="com.zaxxer.hikari.pool_number" value="1"/>
     <property name="java.version" value="21.0.12.1"/>
     <property name="user.dir" value="/home/wombitofurry/Documents/ARSW/Project/trivia-service"/>
     <property name="os.arch" value="amd64"/>
     <property name="java.vm.specification.name" value="Java Virtual Machine Specification"/>
     <property name="PID" value="66974"/>
     <property name="CONSOLE_LOG_CHARSET" value="UTF-8"/>
-    <property name="catalina.base" value="/tmp/tomcat.0.8035863000399307061"/>
     <property name="native.encoding" value="UTF-8"/>
     <property name="java.library.path" value="/usr/java/packages/lib:/usr/lib/x86_64-linux-gnu/jni:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/lib/jni:/lib:/usr/lib"/>
     <property name="java.vm.info" value="mixed mode, sharing"/>
@@ -64,9 +61,9 @@
     <property name="java.class.version" value="65.0"/>
     <property name="LOGGED_APPLICATION_NAME" value="[trivia-service] "/>
   </properties>
-  <testcase name="noSePuedeIniciarConUnSoloParticipante" classname="com.growlink.trivia.ws.SalaWebSocketIntegrationTest" time="0.198">
-    <system-out><![CDATA[2026-10-01T18:40:38.904-05:00  INFO 66974 --- [trivia-service] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.growlink.trivia.ws.SalaWebSocketIntegrationTest]: SalaWebSocketIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
-2026-10-01T18:40:38.925-05:00  INFO 66974 --- [trivia-service] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.growlink.trivia.TriviaServiceApplication for test class com.growlink.trivia.ws.SalaWebSocketIntegrationTest
+  <testcase name="siCursosServiceNoResponderDevuelve503" classname="com.growlink.trivia.web.PreguntaControllerTest" time="0.197">
+    <system-out><![CDATA[18:40:31.996 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [com.growlink.trivia.web.PreguntaControllerTest]: PreguntaControllerTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+18:40:32.078 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.growlink.trivia.TriviaServiceApplication for test class com.growlink.trivia.web.PreguntaControllerTest
 
   .   ____          _            __ _ _
  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
@@ -77,33 +74,36 @@
 
  :: Spring Boot ::                (v3.3.4)
 
-2026-10-01T18:40:38.965-05:00  INFO 66974 --- [trivia-service] [           main] c.g.t.ws.SalaWebSocketIntegrationTest    : Starting SalaWebSocketIntegrationTest using Java 21.0.12.1 with PID 66974 (started by wombitofurry in /home/wombitofurry/Documents/ARSW/Project/trivia-service)
-2026-10-01T18:40:38.965-05:00  INFO 66974 --- [trivia-service] [           main] c.g.t.ws.SalaWebSocketIntegrationTest    : The following 1 profile is active: "test"
-2026-10-01T18:40:39.046-05:00  INFO 66974 --- [trivia-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
-2026-10-01T18:40:39.051-05:00  INFO 66974 --- [trivia-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 5 ms. Found 5 JPA repository interfaces.
-2026-10-01T18:40:39.198-05:00  INFO 66974 --- [trivia-service] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 0 (http)
-2026-10-01T18:40:39.211-05:00  INFO 66974 --- [trivia-service] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-2026-10-01T18:40:39.211-05:00  INFO 66974 --- [trivia-service] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.30]
-2026-10-01T18:40:39.240-05:00  INFO 66974 --- [trivia-service] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-2026-10-01T18:40:39.240-05:00  INFO 66974 --- [trivia-service] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 274 ms
-2026-10-01T18:40:39.286-05:00  INFO 66974 --- [trivia-service] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
-2026-10-01T18:40:39.287-05:00  INFO 66974 --- [trivia-service] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
-2026-10-01T18:40:39.292-05:00  INFO 66974 --- [trivia-service] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
-2026-10-01T18:40:39.292-05:00  INFO 66974 --- [trivia-service] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-3 - Starting...
-2026-10-01T18:40:39.293-05:00  INFO 66974 --- [trivia-service] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-3 - Added connection conn20: url=jdbc:h2:mem:trivia user=SA
-2026-10-01T18:40:39.293-05:00  INFO 66974 --- [trivia-service] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-3 - Start completed.
-2026-10-01T18:40:39.384-05:00  INFO 66974 --- [trivia-service] [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
-2026-10-01T18:40:39.393-05:00  INFO 66974 --- [trivia-service] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
-2026-10-01T18:40:39.583-05:00  INFO 66974 --- [trivia-service] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 39091 (http) with context path '/'
-2026-10-01T18:40:39.583-05:00  INFO 66974 --- [trivia-service] [           main] o.s.m.s.b.SimpleBrokerMessageHandler     : Starting...
-2026-10-01T18:40:39.584-05:00  INFO 66974 --- [trivia-service] [           main] o.s.m.s.b.SimpleBrokerMessageHandler     : BrokerAvailabilityEvent[available=true, SimpleBrokerMessageHandler [org.springframework.messaging.simp.broker.DefaultSubscriptionRegistry@16a81f09]]
-2026-10-01T18:40:39.584-05:00  INFO 66974 --- [trivia-service] [           main] o.s.m.s.b.SimpleBrokerMessageHandler     : Started.
-2026-10-01T18:40:39.586-05:00  INFO 66974 --- [trivia-service] [           main] c.g.t.ws.SalaWebSocketIntegrationTest    : Started SalaWebSocketIntegrationTest in 0.655 seconds (process running for 8.056)
-2026-10-01T18:40:39.673-05:00  INFO 66974 --- [trivia-service] [o-auto-1-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
-2026-10-01T18:40:39.673-05:00  INFO 66974 --- [trivia-service] [o-auto-1-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
-2026-10-01T18:40:39.673-05:00  INFO 66974 --- [trivia-service] [o-auto-1-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 0 ms
+2026-10-01T18:40:32.529-05:00  INFO 66974 --- [trivia-service] [           main] c.g.trivia.web.PreguntaControllerTest    : Starting PreguntaControllerTest using Java 21.0.12.1 with PID 66974 (started by wombitofurry in /home/wombitofurry/Documents/ARSW/Project/trivia-service)
+2026-10-01T18:40:32.530-05:00  INFO 66974 --- [trivia-service] [           main] c.g.trivia.web.PreguntaControllerTest    : The following 1 profile is active: "test"
+2026-10-01T18:40:33.224-05:00  INFO 66974 --- [trivia-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-10-01T18:40:33.273-05:00  INFO 66974 --- [trivia-service] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 44 ms. Found 5 JPA repository interfaces.
+2026-10-01T18:40:34.637-05:00  INFO 66974 --- [trivia-service] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-10-01T18:40:34.714-05:00  INFO 66974 --- [trivia-service] [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.5.3.Final
+2026-10-01T18:40:34.765-05:00  INFO 66974 --- [trivia-service] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-10-01T18:40:34.922-05:00  INFO 66974 --- [trivia-service] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-10-01T18:40:34.950-05:00  INFO 66974 --- [trivia-service] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-10-01T18:40:35.131-05:00  INFO 66974 --- [trivia-service] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:trivia user=SA
+2026-10-01T18:40:35.133-05:00  INFO 66974 --- [trivia-service] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-10-01T18:40:35.874-05:00  INFO 66974 --- [trivia-service] [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-10-01T18:40:35.912-05:00  INFO 66974 --- [trivia-service] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-10-01T18:40:36.251-05:00  INFO 66974 --- [trivia-service] [           main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-10-01T18:40:37.290-05:00  INFO 66974 --- [trivia-service] [           main] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-10-01T18:40:37.291-05:00  INFO 66974 --- [trivia-service] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-10-01T18:40:37.295-05:00  INFO 66974 --- [trivia-service] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 2 ms
+2026-10-01T18:40:37.321-05:00  INFO 66974 --- [trivia-service] [           main] o.s.m.s.b.SimpleBrokerMessageHandler     : Starting...
+2026-10-01T18:40:37.322-05:00  INFO 66974 --- [trivia-service] [           main] o.s.m.s.b.SimpleBrokerMessageHandler     : BrokerAvailabilityEvent[available=true, SimpleBrokerMessageHandler [org.springframework.messaging.simp.broker.DefaultSubscriptionRegistry@6f99b8c4]]
+2026-10-01T18:40:37.324-05:00  INFO 66974 --- [trivia-service] [           main] o.s.m.s.b.SimpleBrokerMessageHandler     : Started.
+2026-10-01T18:40:37.338-05:00  INFO 66974 --- [trivia-service] [           main] c.g.trivia.web.PreguntaControllerTest    : Started PreguntaControllerTest in 5.167 seconds (process running for 5.808)
 ]]></system-out>
+    <system-err><![CDATA[WARNING: A Java agent has been loaded dynamically (/home/wombitofurry/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar)
+WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning
+WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information
+WARNING: Dynamic loading of agents will be disallowed by default in a future release
+]]></system-err>
   </testcase>
-  <testcase name="crearUnirseEIniciarUnaPartidaDeVerdad" classname="com.growlink.trivia.ws.SalaWebSocketIntegrationTest" time="0.109"/>
-  <testcase name="juegaUnaPartidaCompletaDePrincipioAFin" classname="com.growlink.trivia.ws.SalaWebSocketIntegrationTest" time="0.399"/>
+  <testcase name="conMenosOMasDeCuatroOpcionesSeRechaza" classname="com.growlink.trivia.web.PreguntaControllerTest" time="0.016"/>
+  <testcase name="publicadorCreaPreguntaEnUnaCategoriaDondeTieneCursos" classname="com.growlink.trivia.web.PreguntaControllerTest" time="0.114"/>
+  <testcase name="opcionVaciaORespuestaCorrectaFueraDeRangoSeRechaza" classname="com.growlink.trivia.web.PreguntaControllerTest" time="0.017"/>
+  <testcase name="categoriaDondeNoTieneCursosSeRechazaConForbidden" classname="com.growlink.trivia.web.PreguntaControllerTest" time="0.008"/>
 </testsuite>
