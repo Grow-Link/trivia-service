@@ -9,10 +9,10 @@ import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
-// respuestaCorrecta es la posicion (0 a 3) de la opcion correcta dentro de opciones
+// respuestaCorrecta es la posicion (0 a 3) de la opcion correcta dentro de opciones.
+// El publicador no viene en el body, se saca del token (ver PreguntaController).
 public record CrearPreguntaRequest(
         @NotNull Categoria categoria,
-        @NotNull Long publicadorUsuarioId,
         @NotBlank @Size(max = 500) String texto,
         @NotNull @Size(min = 4, max = 4, message = "debe tener exactamente 4 opciones")
         List<@NotBlank @Size(max = 255) String> opciones,

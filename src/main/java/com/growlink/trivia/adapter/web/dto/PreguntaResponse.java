@@ -6,10 +6,10 @@ import com.growlink.trivia.domain.PreguntaBanco;
 import java.util.List;
 
 public record PreguntaResponse(Long id, Categoria categoria, String texto, List<String> opciones,
-                               int respuestaCorrecta) {
+                               int respuestaCorrecta, Long publicadorUsuarioId) {
 
     public static PreguntaResponse from(PreguntaBanco pregunta) {
         return new PreguntaResponse(pregunta.getId(), pregunta.getCategoria(), pregunta.getTexto(),
-                pregunta.getOpciones(), pregunta.getRespuestaCorrecta());
+                pregunta.getOpciones(), pregunta.getRespuestaCorrecta(), pregunta.getPublicadorUsuarioId());
     }
 }

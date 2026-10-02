@@ -5,9 +5,8 @@ import jakarta.persistence.*;
 import java.util.ArrayList;
 import java.util.List;
 
-// esto es el banco de preguntas de donde se sacan las de cada sala
-// por ahora solo hay preguntas sembradas, lo de que el publicador agregue
-// las suyas es HU-23 y todavia no esta hecho
+// esto es el banco de preguntas de donde se sacan las de cada sala.
+// tiene las sembradas (sin publicador) y las que agregan los publicadores (HU-23)
 @Entity
 @Table(name = "pregunta_banco")
 public class PreguntaBanco {
@@ -32,6 +31,9 @@ public class PreguntaBanco {
     @Column(nullable = false)
     private int respuestaCorrecta;
 
+    // quien la agrego (HU-23), null en las preguntas sembradas
+    private Long publicadorUsuarioId;
+
     protected PreguntaBanco() {
         // JPA
     }
@@ -41,6 +43,12 @@ public class PreguntaBanco {
         this.texto = texto;
         this.opciones = new ArrayList<>(opciones);
         this.respuestaCorrecta = respuestaCorrecta;
+    }
+
+    public PreguntaBanco(Categoria categoria, String texto, List<String> opciones, int respuestaCorrecta,
+                         Long publicadorUsuarioId) {
+        this(categoria, texto, opciones, respuestaCorrecta);
+        this.publicadorUsuarioId = publicadorUsuarioId;
     }
 
     public Long getId() {
@@ -61,5 +69,9 @@ public class PreguntaBanco {
 
     public int getRespuestaCorrecta() {
         return respuestaCorrecta;
+    }
+
+    public Long getPublicadorUsuarioId() {
+        return publicadorUsuarioId;
     }
 }
