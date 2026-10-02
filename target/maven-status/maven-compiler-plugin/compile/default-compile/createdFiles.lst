@@ -1,10 +1,12 @@
-com/growlink/trivia/application/PreguntaService.class
-com/growlink/trivia/application/CursosServiceNoDisponibleException.class
 com/growlink/trivia/application/CategoriaNoPermitidaException.class
-com/growlink/trivia/adapter/client/CursosRestClient$CursoDto.class
-com/growlink/trivia/adapter/web/PreguntaController.class
 com/growlink/trivia/adapter/client/CursosRestClient.class
 com/growlink/trivia/application/CursosClient.class
+com/growlink/trivia/application/PreguntaService.class
+com/growlink/trivia/application/CursosServiceNoDisponibleException.class
+com/growlink/trivia/application/NoAutenticadoException.class
+com/growlink/trivia/adapter/client/CursosRestClient$CursoDto.class
+com/growlink/trivia/adapter/web/PreguntaController.class
+com/growlink/trivia/adapter/security/TokenService.class
 com/growlink/trivia/adapter/web/dto/PreguntaResponse.class
 com/growlink/trivia/adapter/web/dto/CrearPreguntaRequest.class
 com/growlink/trivia/adapter/client/CursosRestClient$1.class

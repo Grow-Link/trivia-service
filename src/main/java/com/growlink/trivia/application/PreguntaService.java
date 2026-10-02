@@ -25,6 +25,7 @@ public class PreguntaService {
         if (!cursosClient.categoriasPublicadas(publicadorUsuarioId, authorization).contains(categoria)) {
             throw new CategoriaNoPermitidaException(categoria);
         }
-        return preguntaRepository.save(new PreguntaBanco(categoria, texto, opciones, respuestaCorrecta));
+        return preguntaRepository.save(new PreguntaBanco(categoria, texto, opciones, respuestaCorrecta,
+                publicadorUsuarioId));
     }
 }

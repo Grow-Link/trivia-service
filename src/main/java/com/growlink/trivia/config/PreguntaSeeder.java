@@ -8,10 +8,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-// preguntas sembradas para poder probar, mientras no exista HU-23
-// (que el publicador le diga a trivia-service, consultando a cursos-service,
-// que categorias tiene publicadas). por ahora solo hay de unas pocas
-// categorias, las demas no tienen preguntas todavia
+// preguntas sembradas para poder probar sin depender de que un publicador
+// agregue las suyas (HU-23, POST /api/preguntas). solo hay de unas pocas
+// categorias, las demas se llenan con las que agreguen los publicadores
 @Component
 public class PreguntaSeeder implements CommandLineRunner {
 

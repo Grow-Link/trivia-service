@@ -18,3 +18,9 @@ spring:
 logging:
   level:
     com.growlink.trivia: INFO
+
+growlink:
+  jwt:
+    # mismo secreto que usuarios-service (y la misma clave por defecto para desarrollo local),
+    # en cualquier otro ambiente hay que poner GROWLINK_JWT_SECRET
+    secret: ${GROWLINK_JWT_SECRET:CHANGE_ME_local_dev_only_not_a_real_secret_32bytes+}
