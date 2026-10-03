@@ -82,8 +82,57 @@ mvn test
   pregunta al mismo tiempo, confirmando que solo uno gana el orden y que la
   partida avanza exactamente una vez, no dos.
 
+## Trivias ganadas (HU-22)
+
+Cuando termina una partida, el que quedo primero suma una trivia ganada en
+su perfil. El perfil vive en usuarios-service, asi que trivia-service le
+avisa con una llamada de servicio a servicio
+(`POST /api/interno/trivias-ganadas/{usuarioId}`, ver `UsuariosRestClient`).
+
+- Esa llamada no lleva el token de ningun usuario, se identifica con la
+  llave interna `GROWLINK_INTERNAL_KEY`, que tiene que ser la misma en los
+  dos servicios.
+- El aviso se manda hasta que la partida ya quedo guardada, no antes.
+- Si usuarios-service no contesta, la partida igual termina bien, solo
+  queda un aviso en el log.
+- Si nadie sumo puntos (todos fallaron todo), no hay ganador y no se suma nada.
+
+## Eventos de la partida (base del dashboard de HU-24)
+
+Cada cosa importante que pasa en una partida se guarda en la tabla
+`metrica_evento` (`MetricaService`): sala creada, jugador unido, pregunta
+enviada, primera respuesta de cada pregunta (con la latencia desde que se
+envio), "empates" resueltos por el UPDATE atomico (cuando alguien acierta
+pero otro ya habia acertado primero) y partida finalizada (con duracion y
+numero de participantes). El dashboard del admin son consultas sobre esa tabla.
+
+## Despliegue
+
+El servicio se despliega en Azure App Service, el flujo de ramas y ambientes
+esta explicado en el README del repo `infra`. En resumen:
+
+- `ci.yml` corre las pruebas en cada push a `main`, `avance` o `final`.
+- `cd.yml` despliega la rama a su ambiente de GitHub (`main` -> `actual`,
+  `avance` -> `avance`, `final` -> `final`).
+- Hay un `Dockerfile` para correrlo como contenedor.
+
+Variables de entorno de la App Service:
+
+| Variable | Para que sirve |
+|---|---|
+| `PORT` | Puerto, Azure lo pone solo |
+| `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | La base Postgres |
+| `GROWLINK_JWT_SECRET` | El mismo secreto que usa usuarios-service |
+| `GROWLINK_INTERNAL_KEY` | La misma llave interna que usuarios-service |
+| `USUARIOS_BASE_URL` | URL de usuarios-service |
+| `CURSOS_BASE_URL` | URL de cursos-service |
+
+En la App Service hay que prender **Web sockets** (Configuration > General
+settings), si no la trivia en vivo no conecta.
+
 ## Pendiente
 
-- El contador de "trivias ganadas" en el perfil del ganador vive en
-  user-service, y todavia no hay una llamada de este servicio hacia alla
-  para actualizarlo.
+- HU-24: el dashboard de metricas (los eventos ya se guardan, falta el
+  endpoint para el admin).
+- Si se escala a mas de una instancia, el broker en memoria de STOMP no
+  comparte mensajes entre instancias, hace falta un broker externo.

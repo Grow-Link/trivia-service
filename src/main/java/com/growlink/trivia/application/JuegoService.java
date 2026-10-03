@@ -9,6 +9,8 @@ import com.growlink.trivia.domain.*;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.*;
 
@@ -21,16 +23,21 @@ public class JuegoService {
     private final SalaPreguntaRepository salaPreguntaRepository;
     private final RespuestaSalaRepository respuestaRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final MetricaService metricaService;
+    private final UsuariosClient usuariosClient;
 
     public JuegoService(SalaTriviaRepository salaRepository, SalaParticipanteRepository participanteRepository,
                          PreguntaBancoRepository bancoRepository, SalaPreguntaRepository salaPreguntaRepository,
-                         RespuestaSalaRepository respuestaRepository, SimpMessagingTemplate messagingTemplate) {
+                         RespuestaSalaRepository respuestaRepository, SimpMessagingTemplate messagingTemplate,
+                         MetricaService metricaService, UsuariosClient usuariosClient) {
         this.salaRepository = salaRepository;
         this.participanteRepository = participanteRepository;
         this.bancoRepository = bancoRepository;
         this.salaPreguntaRepository = salaPreguntaRepository;
         this.respuestaRepository = respuestaRepository;
         this.messagingTemplate = messagingTemplate;
+        this.metricaService = metricaService;
+        this.usuariosClient = usuariosClient;
     }
 
     // se llama justo despues de que la sala pasa a EN_CURSO
@@ -77,11 +84,21 @@ public class JuegoService {
         respuestaRepository.save(new RespuestaSala(pregunta.getId(), usuarioId, opcionElegida, esCorrecta, puntos));
 
         if (esCorrecta) {
-            salaPreguntaRepository.intentarMarcarPrimerAcertante(pregunta.getId(), usuarioId);
+            int filas = salaPreguntaRepository.intentarMarcarPrimerAcertante(pregunta.getId(), usuarioId);
+            if (filas == 0) {
+                // otro ya habia acertado primero, el UPDATE atomico lo dejo pasar solo a el
+                metricaService.registrar(TipoEvento.EMPATE_RESUELTO, sala.getId());
+            }
         }
 
         long totalRespuestas = respuestaRepository.countBySalaPreguntaId(pregunta.getId());
         long totalParticipantes = participanteRepository.countBySalaId(sala.getId());
+
+        // con el lock de la fila, solo una respuesta ve el conteo en 1
+        if (totalRespuestas == 1) {
+            long latenciaMs = System.currentTimeMillis() - pregunta.getEnviadaEn().toEpochMilli();
+            metricaService.registrarPrimeraRespuesta(sala.getId(), latenciaMs);
+        }
 
         if (totalRespuestas < totalParticipantes) {
             return; // todavia faltan jugadores por responder esta pregunta
@@ -102,6 +119,7 @@ public class JuegoService {
         SalaPregunta pregunta = salaPreguntaRepository.findBySalaIdAndIndice(sala.getId(), indice).orElseThrow();
         pregunta.marcarEnviada();
         salaPreguntaRepository.save(pregunta);
+        metricaService.registrar(TipoEvento.PREGUNTA_ENVIADA, sala.getId());
         messagingTemplate.convertAndSend("/topic/salas/" + sala.getCodigo(),
                 PreguntaBroadcast.of(sala.getCodigo(), indice, sala.getNumPreguntas(), pregunta.getTexto(),
                         pregunta.getOpciones(), sala.getDuracionSegundos(), pregunta.getEnviadaEn().toEpochMilli()));
@@ -110,8 +128,33 @@ public class JuegoService {
     private void finalizarJuego(SalaTrivia sala, List<LeaderboardEntry> rankingFinal) {
         salaRepository.intentarFinalizar(sala.getId());
         Long ganadorUsuarioId = rankingFinal.isEmpty() ? null : rankingFinal.get(0).usuarioId();
+
+        // duracion total, desde que salio la primera pregunta hasta ahora
+        long duracionMs = salaPreguntaRepository.findBySalaIdAndIndice(sala.getId(), 0)
+                .map(p -> System.currentTimeMillis() - p.getEnviadaEn().toEpochMilli())
+                .orElse(0L);
+        metricaService.registrarPartidaFinalizada(sala.getId(), duracionMs, rankingFinal.size());
+
+        // HU-22: el ganador suma una trivia ganada, solo si de verdad sumo puntos
+        // se avisa a usuarios-service hasta que la partida quedo guardada
+        if (ganadorUsuarioId != null && rankingFinal.get(0).puntos() > 0) {
+            despuesDeConfirmar(() -> usuariosClient.registrarVictoria(ganadorUsuarioId));
+        }
         messagingTemplate.convertAndSend("/topic/salas/" + sala.getCodigo(),
                 ResultadosFinalesBroadcast.of(sala.getCodigo(), rankingFinal, ganadorUsuarioId));
+    }
+
+    private void despuesDeConfirmar(Runnable accion) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    accion.run();
+                }
+            });
+        } else {
+            accion.run();
+        }
     }
 
     private List<LeaderboardEntry> calcularLeaderboard(Long salaId) {

@@ -6,6 +6,7 @@ import com.growlink.trivia.domain.Categoria;
 import com.growlink.trivia.domain.EstadoSala;
 import com.growlink.trivia.domain.SalaParticipante;
 import com.growlink.trivia.domain.SalaTrivia;
+import com.growlink.trivia.domain.TipoEvento;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,9 +27,13 @@ public class SalaService {
     private final SalaTriviaRepository salaRepository;
     private final SalaParticipanteRepository participanteRepository;
 
-    public SalaService(SalaTriviaRepository salaRepository, SalaParticipanteRepository participanteRepository) {
+    private final MetricaService metricaService;
+
+    public SalaService(SalaTriviaRepository salaRepository, SalaParticipanteRepository participanteRepository,
+                       MetricaService metricaService) {
         this.salaRepository = salaRepository;
         this.participanteRepository = participanteRepository;
+        this.metricaService = metricaService;
     }
 
     @Transactional
@@ -43,6 +48,7 @@ public class SalaService {
         SalaTrivia sala = salaRepository.save(new SalaTrivia(codigo, categoria, hostUsuarioId, numPreguntas, duracionSegundos));
         // el host tambien queda como participante, ya esta en la sala de espera desde que la crea
         participanteRepository.save(new SalaParticipante(sala.getId(), hostUsuarioId, hostNombre));
+        metricaService.registrar(TipoEvento.SALA_CREADA, sala.getId());
         return sala;
     }
 
@@ -56,7 +62,9 @@ public class SalaService {
         if (sala.getEstado() != EstadoSala.ESPERANDO) {
             throw new SalaYaEmpezoException(codigo);
         }
-        return participanteRepository.save(new SalaParticipante(sala.getId(), usuarioId, nombre));
+        SalaParticipante participante = participanteRepository.save(new SalaParticipante(sala.getId(), usuarioId, nombre));
+        metricaService.registrar(TipoEvento.PARTICIPANTE_UNIDO, sala.getId());
+        return participante;
     }
 
     public List<SalaParticipante> listarParticipantes(Long salaId) {
