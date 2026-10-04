@@ -120,19 +120,54 @@ Variables de entorno de la App Service:
 
 | Variable | Para que sirve |
 |---|---|
-| `PORT` | Puerto, Azure lo pone solo |
+| `PORT` y `WEBSITES_PORT` | Poner las dos con `8085` |
 | `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | La base Postgres |
 | `GROWLINK_JWT_SECRET` | El mismo secreto que usa usuarios-service |
 | `GROWLINK_INTERNAL_KEY` | La misma llave interna que usuarios-service |
 | `USUARIOS_BASE_URL` | URL de usuarios-service |
 | `CURSOS_BASE_URL` | URL de cursos-service |
+| `TRIVIA_BROKER_RELAY_ENABLED` | `true` para usar RabbitMQ (obligatorio si hay mas de una instancia) |
+| `TRIVIA_BROKER_RELAY_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD` | Donde esta el RabbitMQ con el plugin STOMP (puerto 61613) |
+| `TRIVIA_SALA_ACTIVA_MINUTOS` | Opcional, pasado este tiempo una sala sin terminar ya no cuenta como activa en el dashboard (120) |
 
 En la App Service hay que prender **Web sockets** (Configuration > General
 settings), si no la trivia en vivo no conecta.
 
-## Pendiente
+## Dashboard de metricas (HU-24)
 
-- HU-24: el dashboard de metricas (los eventos ya se guardan, falta el
-  endpoint para el admin).
-- Si se escala a mas de una instancia, el broker en memoria de STOMP no
-  comparte mensajes entre instancias, hace falta un broker externo.
+`GET /api/metricas/dashboard`, solo para el rol ADMIN (el rol viene firmado
+dentro del JWT, sin token responde 401 y con otro rol 403). Son consultas
+sobre las tablas del juego y sobre `metrica_evento`, sin ninguna herramienta
+externa de monitoreo:
+
+| Campo | Que es |
+|---|---|
+| `salasActivas`, `salasEnEspera`, `salasEnCurso` | Salas que no han terminado |
+| `participantesConectados` | Jugadores en esas salas |
+| `latenciaPromedioMs` | Promedio entre que sale una pregunta y llega la primera respuesta |
+| `empatesResueltos` | Veces que dos jugadores acertaron y el UPDATE atomico dejo pasar solo a uno |
+| `partidasFinalizadas`, `duracionPromedioPartidaMs` | Partidas terminadas y cuanto duran |
+
+Con `?ultimosMinutos=N` la latencia, los empates y las partidas se cuentan solo
+sobre los ultimos N minutos. El front lo muestra en el panel del admin
+(`ConcurrenciaEnVivo`) y se actualiza solo cada 5 segundos.
+
+## Escalar a varias instancias
+
+El estado de las salas y las partidas esta en la base de datos, asi que cualquier
+instancia puede atender cualquier peticion. Lo unico que vivia en memoria era el
+broker de mensajes del WebSocket, y por eso un mensaje que salia por una instancia
+no le llegaba a los jugadores conectados a otra. Con
+`TRIVIA_BROKER_RELAY_ENABLED=true` todas las instancias usan un RabbitMQ compartido
+(relay STOMP, ver `WebSocketConfig`). Sin esa variable sigue el broker en memoria,
+que sirve para desarrollo y para una sola instancia. Cada respuesta HTTP trae el
+header `X-Instancia` con la instancia que la atendio. El `docker-compose` con
+replicas, RabbitMQ y la prueba de fuego estan en el repo `infra`.
+
+Una cosa a tener en cuenta: las preguntas de prueba (`PreguntaSeeder`) se
+siembran al arrancar si el banco esta vacio, asi que la primera vez hay que dejar
+una sola instancia hasta que arranque, si no se duplican. El script `levantar.sh`
+del repo `infra` ya lo hace asi.
+
+La parte del relay no se ha probado contra un RabbitMQ real, solo que el
+servicio arranca y pasa todas sus pruebas con el relay apagado.

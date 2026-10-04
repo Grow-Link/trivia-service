@@ -27,6 +27,19 @@ growlink:
   # llave para las llamadas de servicio a servicio (trivia -> usuarios), debe ser la misma en usuarios-service
   internal-key: ${GROWLINK_INTERNAL_KEY:CHANGE_ME_local_dev_only_internal_key}
 
+trivia:
+  broker:
+    relay:
+      # apagado = broker en memoria (una sola instancia), prendido = RabbitMQ compartido entre instancias
+      enabled: ${TRIVIA_BROKER_RELAY_ENABLED:false}
+      host: ${TRIVIA_BROKER_RELAY_HOST:localhost}
+      port: ${TRIVIA_BROKER_RELAY_PORT:61613}
+      username: ${TRIVIA_BROKER_RELAY_USERNAME:guest}
+      password: ${TRIVIA_BROKER_RELAY_PASSWORD:guest}
+  dashboard:
+    # una sala que sigue esperando o en curso despues de este tiempo ya no se cuenta como activa
+    sala-activa-minutos: ${TRIVIA_SALA_ACTIVA_MINUTOS:120}
+
 usuarios:
   base-url: ${USUARIOS_BASE_URL:http://localhost:8080}
 
