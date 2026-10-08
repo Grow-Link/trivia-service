@@ -4,6 +4,7 @@ import com.growlink.trivia.adapter.persistence.*;
 import com.growlink.trivia.adapter.ws.dto.LeaderboardBroadcast;
 import com.growlink.trivia.adapter.ws.dto.LeaderboardEntry;
 import com.growlink.trivia.adapter.ws.dto.PreguntaBroadcast;
+import com.growlink.trivia.adapter.ws.dto.RespuestaRegistradaBroadcast;
 import com.growlink.trivia.adapter.ws.dto.ResultadosFinalesBroadcast;
 import com.growlink.trivia.domain.*;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -82,6 +83,11 @@ public class JuegoService {
         // si ya habia una respuesta de este usuario para esta pregunta, la
         // restriccion unica de la tabla la rechaza aqui mismo
         respuestaRepository.save(new RespuestaSala(pregunta.getId(), usuarioId, opcionElegida, esCorrecta, puntos));
+
+        // feedback instantaneo solo para quien respondio: se manda a toda la sala (como
+        // el resto del protocolo) pero el frontend filtra por usuarioId. esto no
+        // reemplaza el LEADERBOARD de abajo, que sigue esperando a que todos respondan
+        difundir(Destinos.sala(codigo), RespuestaRegistradaBroadcast.of(codigo, usuarioId, indice, esCorrecta, puntos));
 
         if (esCorrecta) {
             int filas = salaPreguntaRepository.intentarMarcarPrimerAcertante(pregunta.getId(), usuarioId);
