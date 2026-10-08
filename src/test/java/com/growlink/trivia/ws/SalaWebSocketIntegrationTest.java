@@ -1,5 +1,6 @@
 package com.growlink.trivia.ws;
 
+import com.growlink.trivia.application.Destinos;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -46,7 +47,7 @@ class SalaWebSocketIntegrationTest {
 
         BlockingQueue<Map<String, Object>> mensajes = new LinkedBlockingQueue<>();
         StompSession session = conectar();
-        session.subscribe("/topic/salas/" + codigo, new QueueFrameHandler(mensajes));
+        session.subscribe(Destinos.sala(codigo), new QueueFrameHandler(mensajes));
 
         // Beto se une (Ana la host ya quedo adentro desde que se creo la sala)
         session.send("/app/salas/" + codigo + "/unirse", Map.of("usuarioId", 2, "nombre", "Beto"));
@@ -76,7 +77,7 @@ class SalaWebSocketIntegrationTest {
 
         BlockingQueue<Map<String, Object>> mensajes = new LinkedBlockingQueue<>();
         StompSession session = conectar();
-        session.subscribe("/topic/salas/" + codigo, new QueueFrameHandler(mensajes));
+        session.subscribe(Destinos.sala(codigo), new QueueFrameHandler(mensajes));
 
         session.send("/app/salas/" + codigo + "/unirse", Map.of("usuarioId", 2, "nombre", "Beto"));
         poll(mensajes); // SALA_UPDATE con los 2 participantes
@@ -116,7 +117,7 @@ class SalaWebSocketIntegrationTest {
 
         BlockingQueue<Map<String, Object>> mensajes = new LinkedBlockingQueue<>();
         StompSession session = conectar();
-        session.subscribe("/topic/salas/" + codigo, new QueueFrameHandler(mensajes));
+        session.subscribe(Destinos.sala(codigo), new QueueFrameHandler(mensajes));
 
         session.send("/app/salas/" + codigo + "/iniciar", Map.of());
         Map<String, Object> error = poll(mensajes);

@@ -105,7 +105,7 @@ public class JuegoService {
         }
 
         List<LeaderboardEntry> ranking = calcularLeaderboard(sala.getId());
-        messagingTemplate.convertAndSend("/topic/salas/" + codigo, LeaderboardBroadcast.of(codigo, ranking));
+        difundir(Destinos.sala(codigo), LeaderboardBroadcast.of(codigo, ranking));
 
         boolean eraLaUltima = indice == sala.getNumPreguntas() - 1;
         if (eraLaUltima) {
@@ -120,7 +120,7 @@ public class JuegoService {
         pregunta.marcarEnviada();
         salaPreguntaRepository.save(pregunta);
         metricaService.registrar(TipoEvento.PREGUNTA_ENVIADA, sala.getId());
-        messagingTemplate.convertAndSend("/topic/salas/" + sala.getCodigo(),
+        difundir(Destinos.sala(sala.getCodigo()),
                 PreguntaBroadcast.of(sala.getCodigo(), indice, sala.getNumPreguntas(), pregunta.getTexto(),
                         pregunta.getOpciones(), sala.getDuracionSegundos(), pregunta.getEnviadaEn().toEpochMilli()));
     }
@@ -140,8 +140,16 @@ public class JuegoService {
         if (ganadorUsuarioId != null && rankingFinal.get(0).puntos() > 0) {
             despuesDeConfirmar(() -> usuariosClient.registrarVictoria(ganadorUsuarioId));
         }
-        messagingTemplate.convertAndSend("/topic/salas/" + sala.getCodigo(),
+        difundir(Destinos.sala(sala.getCodigo()),
                 ResultadosFinalesBroadcast.of(sala.getCodigo(), rankingFinal, ganadorUsuarioId));
+    }
+
+    // A los jugadores se les avisa DESPUES de que la base de datos confirma el guardado, nunca antes.
+    // Si se avisara antes, el jugador contesta enseguida, la respuesta cae en otra replica, y esta lee
+    // la pregunta sin la hora de envio porque la transaccion que la guardo todavia no termina.
+    // Los avisos salen en el mismo orden en que se pidieron.
+    private void difundir(String destino, Object mensaje) {
+        despuesDeConfirmar(() -> messagingTemplate.convertAndSend(destino, mensaje));
     }
 
     private void despuesDeConfirmar(Runnable accion) {

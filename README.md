@@ -30,7 +30,7 @@ Las demas categorias se llenan con las que agreguen los publicadores.
 Unirse e iniciar es por WebSocket, no por REST:
 
 - te conectas a `ws://localhost:8085/ws`
-- te suscribes a `/topic/salas/{codigo}` para escuchar lo que pasa
+- te suscribes a `/topic/salas.{codigo}` (con punto, no barra, ver `Destinos`) para escuchar lo que pasa
 - mandas a `/app/salas/{codigo}/unirse` con `{usuarioId, nombre}`
 - mandas a `/app/salas/{codigo}/iniciar` cuando ya hay 2 o mas
 
@@ -169,5 +169,11 @@ siembran al arrancar si el banco esta vacio, asi que la primera vez hay que deja
 una sola instancia hasta que arranque, si no se duplican. El script `levantar.sh`
 del repo `infra` ya lo hace asi.
 
-La parte del relay no se ha probado contra un RabbitMQ real, solo que el
-servicio arranca y pasa todas sus pruebas con el relay apagado.
+El relay se probo contra un RabbitMQ real con 3 replicas de trivia detras del nginx, jugando una
+partida completa por WebSocket (ver el README de `infra`). Dos cosas que esa prueba obligo a hacer:
+
+- El destino de cada sala es `/topic/salas.CODIGO` (con punto, ver `Destinos`), porque RabbitMQ rechaza
+  `/topic/...` con una barra despues del nombre.
+- Los avisos a los jugadores (pregunta, ranking, resultados) se mandan **despues** de confirmar el guardado
+  en la base de datos (`JuegoService.difundir`), no antes: si no, un jugador podia contestar a una replica
+  que todavia no veia la pregunta.

@@ -1,6 +1,7 @@
 package com.growlink.trivia.adapter.ws;
 
 import com.growlink.trivia.adapter.ws.dto.*;
+import com.growlink.trivia.application.Destinos;
 import com.growlink.trivia.application.JuegoService;
 import com.growlink.trivia.application.SalaService;
 import com.growlink.trivia.domain.SalaTrivia;
@@ -11,7 +12,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
 // El cliente manda a /app/salas/{codigo}/unirse, /iniciar o /responder
-// y todos los que estan en la sala escuchan en /topic/salas/{codigo}
+// y todos los que estan en la sala escuchan en /topic/salas.{codigo}
 @Controller
 public class SalaWebSocketController {
 
@@ -54,7 +55,7 @@ public class SalaWebSocketController {
         var participantes = salaService.listarParticipantes(sala.getId()).stream()
                 .map(p -> new ParticipanteView(p.getUsuarioId(), p.getNombre()))
                 .toList();
-        messagingTemplate.convertAndSend("/topic/salas/" + codigo,
+        messagingTemplate.convertAndSend(Destinos.sala(codigo),
                 SalaUpdateMessage.of(codigo, sala.getEstado().name(), participantes));
     }
 
@@ -63,7 +64,7 @@ public class SalaWebSocketController {
             accion.run();
         } catch (RuntimeException e) {
             // si algo sale mal no tumbamos la conexion, solo le avisamos a la sala
-            messagingTemplate.convertAndSend("/topic/salas/" + codigo, ErrorMessage.of(e.getMessage()));
+            messagingTemplate.convertAndSend(Destinos.sala(codigo), ErrorMessage.of(e.getMessage()));
         }
     }
 }
