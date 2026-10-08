@@ -177,3 +177,7 @@ partida completa por WebSocket (ver el README de `infra`). Dos cosas que esa pru
 - Los avisos a los jugadores (pregunta, ranking, resultados) se mandan **despues** de confirmar el guardado
   en la base de datos (`JuegoService.difundir`), no antes: si no, un jugador podia contestar a una replica
   que todavia no veia la pregunta.
+- Cada jugador recibe los mensajes **en el orden en que se publicaron** (`setPreservePublishOrder(true)` en
+  `WebSocketConfig`). Sin eso, al terminar una ronda el ranking y la pregunta siguiente salen casi a la vez por
+  un grupo de hilos y a veces llegaban al reves; fue lo que hizo fallar `SalaWebSocketIntegrationTest` en el CI
+  de GitHub (fallaba 3 de cada 8 corridas, ahora 0 de 15).

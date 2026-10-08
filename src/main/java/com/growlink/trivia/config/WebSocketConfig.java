@@ -58,5 +58,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             registry.enableSimpleBroker("/topic");
         }
         registry.setApplicationDestinationPrefixes("/app");
+        // Sin esto los mensajes salen por un grupo de hilos que no garantiza el orden: al terminar una
+        // ronda se mandan seguidos el ranking y la pregunta siguiente, y a veces el jugador recibia la
+        // pregunta ANTES del ranking. Con esto cada jugador recibe los mensajes en el orden en que se publicaron.
+        registry.setPreservePublishOrder(true);
     }
 }
