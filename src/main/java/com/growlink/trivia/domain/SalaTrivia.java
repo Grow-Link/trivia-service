@@ -35,6 +35,9 @@ public class SalaTrivia {
     @Column(nullable = false)
     private Instant creadaEn;
 
+    // codigo de la sala de revancha, si ya se propuso una (HU bono). null mientras nadie la pide
+    private String revanchaCodigo;
+
     protected SalaTrivia() {
         // JPA
     }
@@ -79,5 +82,13 @@ public class SalaTrivia {
 
     public Instant getCreadaEn() {
         return creadaEn;
+    }
+
+    public String getRevanchaCodigo() {
+        return revanchaCodigo;
+    }
+
+    public void fijarRevanchaCodigo(String codigo) {
+        this.revanchaCodigo = codigo;
     }
 }
