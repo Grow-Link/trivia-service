@@ -96,6 +96,11 @@ class SalaWebSocketIntegrationTest {
             session.send("/app/salas/" + codigo + "/responder", Map.of("usuarioId", 1, "indice", indice, "opcionElegida", 0));
             session.send("/app/salas/" + codigo + "/responder", Map.of("usuarioId", 2, "indice", indice, "opcionElegida", 0));
 
+            // cada respuesta guardada manda primero un RESPUESTA_REGISTRADA (feedback instantaneo),
+            // y el LEADERBOARD llega despues, cuando ya respondieron los 2 jugadores
+            assertThat(poll(mensajes).get("type")).isEqualTo("RESPUESTA_REGISTRADA");
+            assertThat(poll(mensajes).get("type")).isEqualTo("RESPUESTA_REGISTRADA");
+
             Map<String, Object> leaderboard = poll(mensajes);
             assertThat(leaderboard.get("type")).isEqualTo("LEADERBOARD");
             assertThat((List<?>) leaderboard.get("ranking")).hasSize(2);
