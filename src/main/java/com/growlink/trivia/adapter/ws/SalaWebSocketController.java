@@ -4,6 +4,7 @@ import com.growlink.trivia.adapter.ws.dto.*;
 import com.growlink.trivia.application.Destinos;
 import com.growlink.trivia.application.JuegoService;
 import com.growlink.trivia.application.SalaService;
+import com.growlink.trivia.domain.SalaParticipante;
 import com.growlink.trivia.domain.SalaTrivia;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -48,6 +49,23 @@ public class SalaWebSocketController {
     public void responder(@DestinationVariable String codigo, @Payload RespuestaRequest request) {
         intentar(codigo, () ->
                 juegoService.responder(codigo, request.usuarioId(), request.indice(), request.opcionElegida()));
+    }
+
+    // el servicio ya confirmo la transaccion cuando esto se ejecuta (crearRevancha es
+    // @Transactional y aqui ya retorno), asi que nadie recibe el codigo nuevo antes de
+    // que la sala exista de verdad en la base de datos
+    @MessageMapping("/salas/{codigo}/revancha")
+    public void revancha(@DestinationVariable String codigo, @Payload RevanchaRequest request) {
+        intentar(codigo, () -> {
+            SalaTrivia nueva = salaService.crearRevancha(codigo, request.usuarioId(), request.nombre());
+            String hostNombre = salaService.listarParticipantes(nueva.getId()).stream()
+                    .filter(p -> p.getUsuarioId().equals(nueva.getHostUsuarioId()))
+                    .map(SalaParticipante::getNombre)
+                    .findFirst()
+                    .orElse(request.nombre());
+            messagingTemplate.convertAndSend(Destinos.sala(codigo),
+                    RevanchaBroadcast.of(codigo, nueva.getCodigo(), nueva.getHostUsuarioId(), hostNombre));
+        });
     }
 
     private void avisarATodos(String codigo) {
