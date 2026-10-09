@@ -85,6 +85,35 @@ public class SalaService {
         }
     }
 
+    // HU bono: al terminar la partida, cualquier jugador puede proponer revancha.
+    // El lock de fila sobre la sala vieja (mismo truco que el de responder en JuegoService)
+    // sirve para que, si dos jugadores le dan al boton casi al mismo tiempo, el segundo
+    // espere a que el primero termine su transaccion antes de decidir que hacer: si al
+    // despertar ya ve revanchaCodigo puesto, simplemente devuelve esa sala y no crea otra.
+    @Transactional
+    public SalaTrivia crearRevancha(String codigoViejo, Long usuarioId, String nombre) {
+        SalaTrivia salaVieja = salaRepository.buscarConLockPorCodigo(codigoViejo)
+                .orElseThrow(() -> new SalaNoEncontradaException(codigoViejo));
+        if (salaVieja.getEstado() != EstadoSala.FINALIZADA) {
+            throw new RevanchaNoDisponibleException(codigoViejo);
+        }
+        if (!participanteRepository.existsBySalaIdAndUsuarioId(salaVieja.getId(), usuarioId)) {
+            throw new NoEsParticipanteException(codigoViejo);
+        }
+
+        if (salaVieja.getRevanchaCodigo() != null) {
+            // alguien mas ya la propuso justo antes (o es un segundo clic del mismo
+            // jugador); se devuelve la misma sala para que no quede ninguna huerfana
+            return obtenerPorCodigo(salaVieja.getRevanchaCodigo());
+        }
+
+        SalaTrivia nueva = crear(salaVieja.getCategoria(), usuarioId, nombre,
+                salaVieja.getNumPreguntas(), salaVieja.getDuracionSegundos());
+        salaVieja.fijarRevanchaCodigo(nueva.getCodigo());
+        salaRepository.save(salaVieja);
+        return nueva;
+    }
+
     private String generarCodigoUnico() {
         String codigo;
         do {

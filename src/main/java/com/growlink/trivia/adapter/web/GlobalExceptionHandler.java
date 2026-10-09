@@ -4,7 +4,9 @@ import com.growlink.trivia.application.FaltanParticipantesException;
 import com.growlink.trivia.application.JuegoNoDisponibleException;
 import com.growlink.trivia.application.NoAutenticadoException;
 import com.growlink.trivia.application.NoAutorizadoException;
+import com.growlink.trivia.application.NoEsParticipanteException;
 import com.growlink.trivia.application.NoHayPreguntasSuficientesException;
+import com.growlink.trivia.application.RevanchaNoDisponibleException;
 import com.growlink.trivia.application.SalaNoEncontradaException;
 import com.growlink.trivia.application.SalaYaEmpezoException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -29,7 +31,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({SalaYaEmpezoException.class, FaltanParticipantesException.class,
             DataIntegrityViolationException.class, JuegoNoDisponibleException.class,
-            NoHayPreguntasSuficientesException.class})
+            NoHayPreguntasSuficientesException.class, RevanchaNoDisponibleException.class})
     public ResponseEntity<ErrorBody> handleConflicto(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorBody(e.getMessage()));
     }
@@ -39,8 +41,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorBody(e.getMessage()));
     }
 
-    @ExceptionHandler(NoAutorizadoException.class)
-    public ResponseEntity<ErrorBody> handleNoAutorizado(NoAutorizadoException e) {
+    @ExceptionHandler({NoAutorizadoException.class, NoEsParticipanteException.class})
+    public ResponseEntity<ErrorBody> handleNoAutorizado(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorBody(e.getMessage()));
     }
 
