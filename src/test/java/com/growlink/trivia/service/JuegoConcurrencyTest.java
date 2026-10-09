@@ -7,7 +7,6 @@ import com.growlink.trivia.application.SalaService;
 import com.growlink.trivia.domain.Categoria;
 import com.growlink.trivia.domain.SalaPregunta;
 import com.growlink.trivia.domain.SalaTrivia;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.growlink.trivia.RespuestasDePrueba.correcta;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -71,7 +71,6 @@ class JuegoConcurrencyTest {
         assertThat(participanteRepository.countBySalaId(sala.getId())).isEqualTo(16);
     }
 
-    @Disabled("Pendiente: asume que la opcion 0 siempre es la correcta, y el banco de 200 preguntas ya no cumple eso")
     @Test
     void diezUsuariosRespondenALaVezYSoloUnoGanaElOrden() throws Exception {
         SalaTrivia sala = salaService.crear(Categoria.INGENIERIA_SISTEMAS, 1L, "Ana", 5, 10);
@@ -103,8 +102,8 @@ class JuegoConcurrencyTest {
                 listos.countDown();
                 arrancar.await();
                 try {
-                    // todas las preguntas sembradas tienen la opcion 0 como correcta
-                    juegoService.responder(sala.getCodigo(), usuarioId, 0, 0);
+                    // la correcta se lee de la pregunta que quedo en la sala
+                    juegoService.responder(sala.getCodigo(), usuarioId, 0, correcta(salaPreguntaRepository, sala, 0));
                 } catch (RuntimeException e) {
                     errores.incrementAndGet();
                 }

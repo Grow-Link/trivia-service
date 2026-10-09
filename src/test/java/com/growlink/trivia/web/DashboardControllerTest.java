@@ -2,6 +2,7 @@ package com.growlink.trivia.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.growlink.trivia.adapter.persistence.SalaPreguntaRepository;
 import com.growlink.trivia.application.JuegoService;
 import com.growlink.trivia.application.SalaService;
 import com.growlink.trivia.application.UsuariosClient;
@@ -9,7 +10,6 @@ import com.growlink.trivia.domain.Categoria;
 import com.growlink.trivia.domain.SalaTrivia;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
 
+import static com.growlink.trivia.RespuestasDePrueba.correcta;
+import static com.growlink.trivia.RespuestasDePrueba.incorrecta;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -40,6 +42,8 @@ class DashboardControllerTest {
     private SalaService salaService;
     @Autowired
     private JuegoService juegoService;
+    @Autowired
+    private SalaPreguntaRepository preguntas;
 
     @MockBean
     private UsuariosClient usuariosClient;
@@ -62,7 +66,6 @@ class DashboardControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
-    @Disabled("Pendiente: asume que la opcion 0 siempre es la correcta, y el banco de 200 preguntas ya no cumple eso")
     @Test
     void lasMetricasReflejanLaActividadNueva() throws Exception {
         JsonNode antes = dashboard();
@@ -84,8 +87,8 @@ class DashboardControllerTest {
         assertThat(enCurso.get("salasEnCurso").asLong()).isEqualTo(antes.get("salasEnCurso").asLong() + 1);
 
         for (int i = 0; i < 5; i++) {
-            juegoService.responder(sala.getCodigo(), 1L, i, 0);
-            juegoService.responder(sala.getCodigo(), 400L, i, i < 2 ? 0 : 1);
+            juegoService.responder(sala.getCodigo(), 1L, i, correcta(preguntas, sala, i));
+            juegoService.responder(sala.getCodigo(), 400L, i, i < 2 ? correcta(preguntas, sala, i) : incorrecta(preguntas, sala, i));
         }
 
         // la sala termino: ya no es activa, y quedaron sus eventos

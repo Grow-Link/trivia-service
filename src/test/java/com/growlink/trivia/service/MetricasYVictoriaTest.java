@@ -1,19 +1,21 @@
 package com.growlink.trivia.service;
 
 import com.growlink.trivia.adapter.persistence.MetricaEventoRepository;
+import com.growlink.trivia.adapter.persistence.SalaPreguntaRepository;
 import com.growlink.trivia.application.JuegoService;
 import com.growlink.trivia.application.SalaService;
 import com.growlink.trivia.application.UsuariosClient;
 import com.growlink.trivia.domain.Categoria;
 import com.growlink.trivia.domain.SalaTrivia;
 import com.growlink.trivia.domain.TipoEvento;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 
+import static com.growlink.trivia.RespuestasDePrueba.correcta;
+import static com.growlink.trivia.RespuestasDePrueba.incorrecta;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -31,11 +33,12 @@ class MetricasYVictoriaTest {
     private JuegoService juegoService;
     @Autowired
     private MetricaEventoRepository eventos;
+    @Autowired
+    private SalaPreguntaRepository preguntas;
 
     @MockBean
     private UsuariosClient usuariosClient;
 
-    @Disabled("Pendiente: asume que la opcion 0 siempre es la correcta, y el banco de 200 preguntas ya no cumple eso")
     @Test
     void unaPartidaCompletaDejaSusEventosYLeSumaLaVictoriaSoloAlGanador() {
         SalaTrivia sala = salaService.crear(Categoria.INGENIERIA_SISTEMAS, 1L, "Ana", 5, 10);
@@ -46,8 +49,8 @@ class MetricasYVictoriaTest {
         // Ana acierta las 5 y siempre contesta primero
         // Beto acierta las 3 primeras (pierde la carrera por el primer acierto) y falla las 2 ultimas
         for (int i = 0; i < 5; i++) {
-            juegoService.responder(sala.getCodigo(), 1L, i, 0);
-            juegoService.responder(sala.getCodigo(), 300L, i, i < 3 ? 0 : 1);
+            juegoService.responder(sala.getCodigo(), 1L, i, correcta(preguntas, sala, i));
+            juegoService.responder(sala.getCodigo(), 300L, i, i < 3 ? correcta(preguntas, sala, i) : incorrecta(preguntas, sala, i));
         }
 
         assertThat(eventos.countBySalaIdAndTipo(sala.getId(), TipoEvento.SALA_CREADA)).isEqualTo(1);
@@ -68,7 +71,6 @@ class MetricasYVictoriaTest {
         verify(usuariosClient, never()).registrarVictoria(300L);
     }
 
-    @Disabled("Pendiente: asume que la opcion 0 siempre es la correcta, y el banco de 200 preguntas ya no cumple eso")
     @Test
     void siNadieSumaPuntosNoHayGanador() {
         SalaTrivia sala = salaService.crear(Categoria.INGENIERIA_SISTEMAS, 1L, "Ana", 5, 10);
@@ -78,8 +80,8 @@ class MetricasYVictoriaTest {
 
         // las dos responden mal todas las preguntas
         for (int i = 0; i < 5; i++) {
-            juegoService.responder(sala.getCodigo(), 1L, i, 1);
-            juegoService.responder(sala.getCodigo(), 301L, i, 1);
+            juegoService.responder(sala.getCodigo(), 1L, i, incorrecta(preguntas, sala, i));
+            juegoService.responder(sala.getCodigo(), 301L, i, incorrecta(preguntas, sala, i));
         }
 
         assertThat(eventos.countBySalaIdAndTipo(sala.getId(), TipoEvento.PARTIDA_FINALIZADA)).isEqualTo(1);

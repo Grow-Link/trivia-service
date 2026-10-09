@@ -26,11 +26,14 @@ public class JuegoService {
     private final SimpMessagingTemplate messagingTemplate;
     private final MetricaService metricaService;
     private final UsuariosClient usuariosClient;
+    private final PartidaService partidaService;
 
     public JuegoService(SalaTriviaRepository salaRepository, SalaParticipanteRepository participanteRepository,
                          PreguntaBancoRepository bancoRepository, SalaPreguntaRepository salaPreguntaRepository,
                          RespuestaSalaRepository respuestaRepository, SimpMessagingTemplate messagingTemplate,
-                         MetricaService metricaService, UsuariosClient usuariosClient) {
+                         MetricaService metricaService, UsuariosClient usuariosClient,
+                         PartidaService partidaService) {
+        this.partidaService = partidaService;
         this.salaRepository = salaRepository;
         this.participanteRepository = participanteRepository;
         this.bancoRepository = bancoRepository;
@@ -133,7 +136,12 @@ public class JuegoService {
 
     private void finalizarJuego(SalaTrivia sala, List<LeaderboardEntry> rankingFinal) {
         salaRepository.intentarFinalizar(sala.getId());
-        Long ganadorUsuarioId = rankingFinal.isEmpty() ? null : rankingFinal.get(0).usuarioId();
+
+        // ganan todos los que quedaron con el puntaje mas alto, siempre que de verdad hayan sumado puntos
+        int mayorPuntaje = rankingFinal.isEmpty() ? 0 : rankingFinal.get(0).puntos();
+        List<Long> ganadores = mayorPuntaje <= 0 ? List.<Long>of() : rankingFinal.stream()
+                .filter(e -> e.puntos() == mayorPuntaje).map(LeaderboardEntry::usuarioId).toList();
+        Long ganadorUsuarioId = ganadores.isEmpty() ? null : ganadores.get(0);
 
         // duracion total, desde que salio la primera pregunta hasta ahora
         long duracionMs = salaPreguntaRepository.findBySalaIdAndIndice(sala.getId(), 0)
@@ -141,13 +149,17 @@ public class JuegoService {
                 .orElse(0L);
         metricaService.registrarPartidaFinalizada(sala.getId(), duracionMs, rankingFinal.size());
 
-        // HU-22: el ganador suma una trivia ganada, solo si de verdad sumo puntos
+        // el acta de la partida queda guardada en la misma transaccion que la cierra
+        partidaService.registrar(sala, rankingFinal, duracionMs);
+
+        // HU-22: cada ganador suma una trivia ganada (si hay empate, todos los que empataron)
         // se avisa a usuarios-service hasta que la partida quedo guardada
-        if (ganadorUsuarioId != null && rankingFinal.get(0).puntos() > 0) {
-            despuesDeConfirmar(() -> usuariosClient.registrarVictoria(ganadorUsuarioId));
+        for (Long ganadorId : ganadores) {
+            despuesDeConfirmar(() -> usuariosClient.registrarVictoria(ganadorId));
         }
         difundir(Destinos.sala(sala.getCodigo()),
-                ResultadosFinalesBroadcast.of(sala.getCodigo(), rankingFinal, ganadorUsuarioId));
+                ResultadosFinalesBroadcast.of(sala.getCodigo(), rankingFinal, ganadorUsuarioId, ganadores,
+                        sala.getNumPreguntas()));
     }
 
     // A los jugadores se les avisa DESPUES de que la base de datos confirma el guardado, nunca antes.
@@ -177,8 +189,12 @@ public class JuegoService {
         List<RespuestaSala> respuestas = respuestaRepository.findBySalaPreguntaIdIn(preguntaIds);
 
         Map<Long, Integer> puntosPorUsuario = new HashMap<>();
+        Map<Long, Integer> aciertosPorUsuario = new HashMap<>();
         for (RespuestaSala r : respuestas) {
             puntosPorUsuario.merge(r.getUsuarioId(), r.getPuntos(), Integer::sum);
+            if (r.isEsCorrecta()) {
+                aciertosPorUsuario.merge(r.getUsuarioId(), 1, Integer::sum);
+            }
         }
 
         Map<Long, String> nombresPorUsuario = new HashMap<>();
@@ -188,8 +204,12 @@ public class JuegoService {
         }
 
         return puntosPorUsuario.entrySet().stream()
-                .map(e -> new LeaderboardEntry(e.getKey(), nombresPorUsuario.get(e.getKey()), e.getValue()))
-                .sorted(Comparator.comparingInt(LeaderboardEntry::puntos).reversed())
+                .map(e -> new LeaderboardEntry(e.getKey(), nombresPorUsuario.get(e.getKey()), e.getValue(),
+                        aciertosPorUsuario.getOrDefault(e.getKey(), 0)))
+                // a igual puntaje, mas aciertos primero, y despues el id para que el orden siempre sea el mismo
+                .sorted(Comparator.comparingInt(LeaderboardEntry::puntos).reversed()
+                        .thenComparing(Comparator.comparingInt(LeaderboardEntry::aciertos).reversed())
+                        .thenComparing(LeaderboardEntry::usuarioId))
                 .toList();
     }
 

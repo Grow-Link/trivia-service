@@ -5,6 +5,7 @@ import com.growlink.trivia.application.JuegoNoDisponibleException;
 import com.growlink.trivia.application.NoAutenticadoException;
 import com.growlink.trivia.application.NoAutorizadoException;
 import com.growlink.trivia.application.NoHayPreguntasSuficientesException;
+import com.growlink.trivia.application.RetoNoEncontradoException;
 import com.growlink.trivia.application.SalaNoEncontradaException;
 import com.growlink.trivia.application.SalaYaEmpezoException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -22,8 +23,8 @@ public class GlobalExceptionHandler {
     record ErrorBody(String message) {
     }
 
-    @ExceptionHandler(SalaNoEncontradaException.class)
-    public ResponseEntity<ErrorBody> handleNoEncontrada(SalaNoEncontradaException e) {
+    @ExceptionHandler({SalaNoEncontradaException.class, RetoNoEncontradoException.class})
+    public ResponseEntity<ErrorBody> handleNoEncontrada(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorBody(e.getMessage()));
     }
 
