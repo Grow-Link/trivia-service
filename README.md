@@ -26,6 +26,14 @@ Las demas categorias se llenan con las que agreguen los publicadores.
 | POST | /api/salas | Crea la sala, el host ya queda adentro |
 | GET | /api/salas/{codigo} | Ver el estado de una sala |
 | POST | /api/preguntas | HU-23: el publicador agrega una pregunta al banco (necesita token) |
+| GET | /api/partidas/ganadores?limite=N | Ultimas partidas terminadas, cada una con su podio (necesita token) |
+| GET | /api/partidas/{codigo} | El acta completa de una partida: jugadores, puestos, puntos y aciertos, duracion |
+| GET | /api/partidas/mias | Las partidas en las que jugo quien pregunta, con su puesto |
+| GET | /api/partidas/salon-de-la-fama | Quien ha ganado mas partidas |
+| POST | /api/retos | "Te reto a una trivia": crea la sala (quien reta queda esperando) y una invitacion pendiente |
+| GET | /api/retos/recibidos | Los retos pendientes que todavia no vencen |
+| GET | /api/retos/enviados | Los ultimos retos que mande, con su estado |
+| POST | /api/retos/{id}/aceptar o /rechazar | Solo la persona retada; es un UPDATE atomico, asi que aceptar y rechazar a la vez no se pisan |
 
 Unirse e iniciar es por WebSocket, no por REST:
 
@@ -58,6 +66,12 @@ Unirse e iniciar es por WebSocket, no por REST:
 - Sin token o con token invalido 401. Si cursos-service no responde 503.
 - La pregunta queda guardada con su `publicadorUsuarioId` (las sembradas lo
   tienen en null) y desde ese momento sale en las salas de esa categoria.
+
+## Historial de competencias y retos
+
+- Al terminar una partida se guarda su **acta** (`partida_resultado` + `partida_puesto`) en la misma transaccion que la cierra: ganador, jugadores, puntos, aciertos y duracion. Si varias personas empatan en el puntaje mas alto, todas cuentan como ganadoras.
+- Un **reto** vence a los 5 minutos (`trivia.retos.vigencia-minutos`). No se puede retar a uno mismo ni mandar dos retos pendientes a la misma persona. Quien reta sale del token, nunca del cuerpo.
+- La prueba de la clase: `PartidaCompletaConcurrenteTest` juega una partida entera con 6 jugadores contestando a la vez, y `infra/scripts/humo` lo repite por WebSocket real.
 
 ## Por que el UPDATE atomico para iniciar
 
