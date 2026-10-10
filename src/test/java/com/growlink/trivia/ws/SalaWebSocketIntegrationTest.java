@@ -1,8 +1,12 @@
 package com.growlink.trivia.ws;
 
+import com.growlink.trivia.adapter.persistence.SalaPreguntaRepository;
 import com.growlink.trivia.application.Destinos;
+import com.growlink.trivia.application.SalaService;
+import com.growlink.trivia.domain.SalaTrivia;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
@@ -22,6 +26,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import static com.growlink.trivia.RespuestasDePrueba.correcta;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // Crea una sala real por REST, conecta un cliente STOMP de verdad, se une
@@ -32,6 +37,11 @@ class SalaWebSocketIntegrationTest {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    private SalaService salaService;
+    @Autowired
+    private SalaPreguntaRepository salaPreguntaRepository;
 
     private WebSocketStompClient stompClient;
 
@@ -85,6 +95,8 @@ class SalaWebSocketIntegrationTest {
         session.send("/app/salas/" + codigo + "/iniciar", Map.of());
         poll(mensajes); // SALA_UPDATE en EN_CURSO
 
+        SalaTrivia sala = salaService.obtenerPorCodigo(codigo);
+
         for (int indice = 0; indice < 5; indice++) {
             Map<String, Object> pregunta = poll(mensajes);
             assertThat(pregunta.get("type")).isEqualTo("PREGUNTA");
@@ -92,9 +104,12 @@ class SalaWebSocketIntegrationTest {
             assertThat((List<?>) pregunta.get("opciones")).hasSize(4);
             assertThat(pregunta.get("enviadaEnEpochMs")).isNotNull();
 
-            // las preguntas sembradas siempre tienen la opcion 0 como correcta
-            session.send("/app/salas/" + codigo + "/responder", Map.of("usuarioId", 1, "indice", indice, "opcionElegida", 0));
-            session.send("/app/salas/" + codigo + "/responder", Map.of("usuarioId", 2, "indice", indice, "opcionElegida", 0));
+            // la correcta se lee de la pregunta que de verdad quedo en la sala: el banco de
+            // 200 preguntas ya no siempre tiene la correcta en la opcion 0, y sin esto los dos
+            // jugadores podian terminar con 0 puntos y sin ganador (la prueba fallaba al azar)
+            int opcionCorrecta = correcta(salaPreguntaRepository, sala, indice);
+            session.send("/app/salas/" + codigo + "/responder", Map.of("usuarioId", 1, "indice", indice, "opcionElegida", opcionCorrecta));
+            session.send("/app/salas/" + codigo + "/responder", Map.of("usuarioId", 2, "indice", indice, "opcionElegida", opcionCorrecta));
 
             // cada respuesta guardada manda primero un RESPUESTA_REGISTRADA (feedback instantaneo),
             // y el LEADERBOARD llega despues, cuando ya respondieron los 2 jugadores

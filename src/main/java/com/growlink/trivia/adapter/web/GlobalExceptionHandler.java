@@ -6,6 +6,7 @@ import com.growlink.trivia.application.NoAutenticadoException;
 import com.growlink.trivia.application.NoAutorizadoException;
 import com.growlink.trivia.application.NoEsParticipanteException;
 import com.growlink.trivia.application.NoHayPreguntasSuficientesException;
+import com.growlink.trivia.application.PartidaNoEncontradaException;
 import com.growlink.trivia.application.RetoNoEncontradoException;
 import com.growlink.trivia.application.RevanchaNoDisponibleException;
 import com.growlink.trivia.application.SalaNoEncontradaException;
@@ -25,7 +26,8 @@ public class GlobalExceptionHandler {
     record ErrorBody(String message) {
     }
 
-    @ExceptionHandler({SalaNoEncontradaException.class, RetoNoEncontradoException.class})
+    @ExceptionHandler({SalaNoEncontradaException.class, RetoNoEncontradoException.class,
+            PartidaNoEncontradaException.class})
     public ResponseEntity<ErrorBody> handleNoEncontrada(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorBody(e.getMessage()));
     }

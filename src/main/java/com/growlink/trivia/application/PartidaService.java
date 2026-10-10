@@ -78,10 +78,12 @@ public class PartidaService {
                 mayor, hayGanador && conPuntajeMayor > 1, duracionMs));
 
         int posicion = 1;
+        List<PartidaPuesto> puestos = new ArrayList<>();
         for (LeaderboardEntry entrada : rankingFinal) {
-            puestoRepository.save(new PartidaPuesto(partida.getId(), posicion++, entrada.usuarioId(),
+            puestos.add(new PartidaPuesto(partida.getId(), posicion++, entrada.usuarioId(),
                     entrada.nombre(), entrada.puntos(), entrada.aciertos()));
         }
+        puestoRepository.saveAll(puestos);
     }
 
     @Transactional(readOnly = true)
@@ -103,7 +105,7 @@ public class PartidaService {
     @Transactional(readOnly = true)
     public Detalle detalle(String codigo) {
         PartidaResultado partida = partidaRepository.findByCodigo(codigo)
-                .orElseThrow(() -> new SalaNoEncontradaException(codigo));
+                .orElseThrow(() -> new PartidaNoEncontradaException(codigo));
         return new Detalle(Resumen.de(partida),
                 puestoRepository.findByPartidaIdOrderByPosicion(partida.getId()).stream().map(Puesto::de).toList());
     }

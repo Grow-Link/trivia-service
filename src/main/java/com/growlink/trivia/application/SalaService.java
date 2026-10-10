@@ -56,6 +56,13 @@ public class SalaService {
         return salaRepository.findByCodigo(codigo).orElseThrow(() -> new SalaNoEncontradaException(codigo));
     }
 
+    // mismo lock de fila que usa crearRevancha. Lo usa RetoService.aceptar para que, si el host
+    // le da a "iniciar" justo cuando el retado acepta, una de las dos transacciones espere a que
+    // la otra termine en vez de que ambas lean "ESPERANDO" y las dos sigan de largo
+    public SalaTrivia obtenerConLockPorCodigo(String codigo) {
+        return salaRepository.buscarConLockPorCodigo(codigo).orElseThrow(() -> new SalaNoEncontradaException(codigo));
+    }
+
     @Transactional
     public SalaParticipante unirse(String codigo, Long usuarioId, String nombre) {
         SalaTrivia sala = obtenerPorCodigo(codigo);

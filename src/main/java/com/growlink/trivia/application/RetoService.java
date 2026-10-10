@@ -71,7 +71,10 @@ public class RetoService {
     @Transactional
     public Reto aceptar(Long retoId, Long usuarioId) {
         Reto reto = propio(retoId, usuarioId);
-        SalaTrivia sala = salaService.obtenerPorCodigo(reto.getCodigoSala());
+        // se bloquea la fila de la sala hasta que termine esta transaccion: si el host le da a
+        // "iniciar" casi al mismo tiempo, esa transaccion espera a que esta termine antes de
+        // poder arrancar, en vez de que las dos vean "ESPERANDO" y la aceptacion quede atrapada
+        SalaTrivia sala = salaService.obtenerConLockPorCodigo(reto.getCodigoSala());
         if (sala.getEstado() != EstadoSala.ESPERANDO) {
             throw new SalaYaEmpezoException(sala.getCodigo());
         }
