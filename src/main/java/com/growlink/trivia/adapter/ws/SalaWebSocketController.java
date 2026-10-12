@@ -21,6 +21,7 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 
 // El cliente manda a /app/salas/{codigo}/unirse, /iniciar, /responder o /salir
 // y todos los que estan en la sala escuchan en /topic/salas.{codigo}
@@ -82,10 +83,15 @@ public class SalaWebSocketController implements ApplicationListener<SessionDisco
             return; // esta sesion nunca llego a unirse a ninguna sala
         }
         Instant momentoDesconexion = Instant.now();
-        taskScheduler.schedule(
-                () -> intentar(participante.codigo(), () -> emitirSalida(participante.codigo(), participante.usuarioId(),
-                        salaService.salirPorDesconexion(participante.codigo(), participante.usuarioId(), momentoDesconexion))),
-                Instant.now().plusMillis(graciaSalidaMs));
+        try {
+            taskScheduler.schedule(
+                    () -> intentar(participante.codigo(), () -> emitirSalida(participante.codigo(), participante.usuarioId(),
+                            salaService.salirPorDesconexion(participante.codigo(), participante.usuarioId(), momentoDesconexion))),
+                    Instant.now().plusMillis(graciaSalidaMs));
+        } catch (RejectedExecutionException e) {
+            // la instancia se esta apagando y su TaskScheduler ya cerro: las conexiones se cierran
+            // como parte del mismo apagado, no hay partida que seguir atendiendo aqui
+        }
     }
 
     private void emitirSalida(String codigo, Long usuarioId, SalaService.SalidaResultado resultado) {

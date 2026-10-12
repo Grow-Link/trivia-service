@@ -18,5 +18,7 @@ trivia:
     margen-ms: 50
     intervalo-barredor-ms: 100
   salida:
-    # corto para que la prueba de desconexion con gracia no tenga que esperar los 8s de produccion
-    gracia-ms: 300
+    # corto para que la prueba de desconexion con gracia no tenga que esperar los 8s de produccion,
+    # pero no tan corto como para que una reconexion de verdad (un WebSocket nuevo + el handshake de
+    # STOMP) no le alcance a tiempo en un runner de CI compartido y mas lento que una maquina local
+    gracia-ms: 2000

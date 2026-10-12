@@ -3,6 +3,7 @@ package com.growlink.trivia.ws;
 import com.growlink.trivia.application.Destinos;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
@@ -25,14 +26,21 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // HU salir-de-sala, de punta a punta por WebSocket (mismo estilo que SalaWebSocketIntegrationTest y
-// RevanchaWebSocketIntegrationTest). application-test.yml deja trivia.salida.gracia-ms en 300ms para
-// que las pruebas de desconexion no tengan que esperar los 8s de produccion.
+// RevanchaWebSocketIntegrationTest). application-test.yml deja trivia.salida.gracia-ms mas corto que
+// en produccion para que las pruebas de desconexion no tengan que esperar los 8s reales, pero
+// pollNegativo() siempre espera mas que ese margen (nunca un numero fijo aparte): reconectar un
+// WebSocket de verdad (handshake nuevo + STOMP CONNECT/CONNECTED) puede tardar mas de lo que tarda en
+// una maquina local, sobre todo en un runner de CI compartido, y un margen fijo mas corto que eso hizo
+// que esta prueba fallara una vez en CI aunque la reconexion si habia llegado a tiempo.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 class SalirDeSalaWebSocketIntegrationTest {
 
     @LocalServerPort
     private int port;
+
+    @Value("${trivia.salida.gracia-ms}")
+    private long graciaSalidaMs;
 
     private WebSocketStompClient stompClient;
 
@@ -154,7 +162,7 @@ class SalirDeSalaWebSocketIntegrationTest {
 
         sesionBeto.disconnect(); // cerro la pestana (o se le cayo la red)
 
-        // vuelve enseguida, bastante antes de que se cumplan los 300ms de gracia de la prueba
+        // vuelve enseguida, mucho antes de que se cumpla el margen de gracia de la prueba
         StompSession sesionBetoNueva = conectar();
         sesionBetoNueva.send("/app/salas/" + codigo + "/unirse", Map.of("usuarioId", 2, "nombre", "Beto"));
         Map<String, Object> salaUpdateReconexion = poll(mensajes);
@@ -224,9 +232,10 @@ class SalirDeSalaWebSocketIntegrationTest {
         return mensaje;
     }
 
-    // espera un poco mas del margen de gracia de la prueba (300ms) y confirma que no llego nada
+    // espera bastante mas que el margen de gracia configurado (nunca un numero fijo aparte, ver el
+    // comentario de la clase) y confirma que no llego nada
     private Map<String, Object> pollNegativo(BlockingQueue<Map<String, Object>> queue) throws InterruptedException {
-        return queue.poll(800, TimeUnit.MILLISECONDS);
+        return queue.poll(graciaSalidaMs + 2000, TimeUnit.MILLISECONDS);
     }
 
     private static class QueueFrameHandler implements StompFrameHandler {
