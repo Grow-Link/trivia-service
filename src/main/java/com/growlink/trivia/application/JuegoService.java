@@ -7,6 +7,7 @@ import com.growlink.trivia.adapter.ws.dto.PreguntaBroadcast;
 import com.growlink.trivia.adapter.ws.dto.RespuestaRegistradaBroadcast;
 import com.growlink.trivia.adapter.ws.dto.ResultadosFinalesBroadcast;
 import com.growlink.trivia.domain.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,12 +28,16 @@ public class JuegoService {
     private final MetricaService metricaService;
     private final UsuariosClient usuariosClient;
     private final PartidaService partidaService;
+    // tolerancia sobre la duracion de la sala antes de considerar vencida una pregunta,
+    // para no castigar a quien respondio a tiempo pero su mensaje llego con algo de latencia
+    private final long margenCierreMs;
 
     public JuegoService(SalaTriviaRepository salaRepository, SalaParticipanteRepository participanteRepository,
                          PreguntaBancoRepository bancoRepository, SalaPreguntaRepository salaPreguntaRepository,
                          RespuestaSalaRepository respuestaRepository, SimpMessagingTemplate messagingTemplate,
                          MetricaService metricaService, UsuariosClient usuariosClient,
-                         PartidaService partidaService) {
+                         PartidaService partidaService,
+                         @Value("${trivia.cierre-pregunta.margen-ms:1000}") long margenCierreMs) {
         this.partidaService = partidaService;
         this.salaRepository = salaRepository;
         this.participanteRepository = participanteRepository;
@@ -42,6 +47,7 @@ public class JuegoService {
         this.messagingTemplate = messagingTemplate;
         this.metricaService = metricaService;
         this.usuariosClient = usuariosClient;
+        this.margenCierreMs = margenCierreMs;
     }
 
     // se llama justo despues de que la sala pasa a EN_CURSO
@@ -80,6 +86,12 @@ public class JuegoService {
         // ya respondieron
         SalaPregunta pregunta = salaPreguntaRepository.buscarConLockPorId(referencia.getId()).orElseThrow();
 
+        // ya se cerro, sea porque todos respondieron o porque el barredor de tiempo la vencio
+        // (ver cerrarPregunta): esta respuesta llego tarde, no cuenta
+        if (pregunta.isCerrada()) {
+            throw new JuegoNoDisponibleException("Se acabó el tiempo");
+        }
+
         boolean esCorrecta = opcionElegida == pregunta.getRespuestaCorrecta();
         int puntos = esCorrecta ? calcularPuntos(pregunta, sala.getDuracionSegundos()) : 0;
 
@@ -113,15 +125,49 @@ public class JuegoService {
             return; // todavia faltan jugadores por responder esta pregunta
         }
 
-        List<LeaderboardEntry> ranking = calcularLeaderboard(sala.getId());
-        difundir(Destinos.sala(codigo), LeaderboardBroadcast.of(codigo, ranking));
+        cerrarPregunta(sala, pregunta);
+    }
 
-        boolean eraLaUltima = indice == sala.getNumPreguntas() - 1;
+    // se llama tanto cuando ya respondieron todos los participantes (desde responder) como
+    // cuando el barredor detecta que se vencio el tiempo (desde intentarCerrarPorTiempo). El
+    // UPDATE atomico sobre "cerrada" decide quien gana si las dos cosas pasan casi a la vez:
+    // quien pierda no hace nada, la partida ya avanzo por el otro camino
+    private void cerrarPregunta(SalaTrivia sala, SalaPregunta pregunta) {
+        if (salaPreguntaRepository.intentarCerrar(pregunta.getId()) == 0) {
+            return;
+        }
+
+        List<LeaderboardEntry> ranking = calcularLeaderboard(sala.getId());
+        difundir(Destinos.sala(sala.getCodigo()), LeaderboardBroadcast.of(sala.getCodigo(), ranking));
+
+        boolean eraLaUltima = pregunta.getIndice() == sala.getNumPreguntas() - 1;
         if (eraLaUltima) {
             finalizarJuego(sala, ranking);
         } else {
-            activarPregunta(sala, indice + 1);
+            activarPregunta(sala, pregunta.getIndice() + 1);
         }
+    }
+
+    // la llama CierrePreguntaScheduler, una vez por cada pregunta activa que encuentra en su
+    // barrido. Corre en todas las replicas, pero el lock de fila (el mismo que usa responder)
+    // hace que, si dos replicas evaluan la misma pregunta casi a la vez, la segunda espere a
+    // que la primera termine y al final solo una de las dos de verdad cierre y avance
+    @Transactional
+    public void intentarCerrarPorTiempo(Long preguntaId) {
+        SalaPregunta pregunta = salaPreguntaRepository.buscarConLockPorId(preguntaId).orElse(null);
+        if (pregunta == null || pregunta.isCerrada() || pregunta.getEnviadaEn() == null) {
+            return; // ya no aplica: otra replica la cerro, o no esta activa
+        }
+        SalaTrivia sala = salaRepository.findById(pregunta.getSalaId()).orElse(null);
+        if (sala == null || sala.getEstado() != EstadoSala.EN_CURSO) {
+            return;
+        }
+        long transcurridoMs = System.currentTimeMillis() - pregunta.getEnviadaEn().toEpochMilli();
+        long limiteMs = sala.getDuracionSegundos() * 1000L + margenCierreMs;
+        if (transcurridoMs < limiteMs) {
+            return; // todavia no vence
+        }
+        cerrarPregunta(sala, pregunta);
     }
 
     private void activarPregunta(SalaTrivia sala, int indice) {

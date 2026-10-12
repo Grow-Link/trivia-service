@@ -42,6 +42,12 @@ public class SalaPregunta {
     // el primero en responder bien esta pregunta, puesto con un UPDATE atomico
     private Long primerAcertanteUsuarioId;
 
+    // true cuando ya se avanzo de esta pregunta, sea porque todos respondieron o porque
+    // el barredor de tiempo la vencio (ver JuegoService.cerrarPregunta). Default false
+    // para que funcione sobre las filas que ya existian antes de esta columna
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean cerrada = false;
+
     protected SalaPregunta() {
         // JPA
     }
@@ -83,10 +89,20 @@ public class SalaPregunta {
     }
 
     public void marcarEnviada() {
-        this.enviadaEn = Instant.now();
+        marcarEnviada(Instant.now());
+    }
+
+    // el overload con instante explicito lo usan las pruebas de cierre por tiempo, para no
+    // tener que esperar segundos de verdad a que una pregunta venza
+    public void marcarEnviada(Instant cuando) {
+        this.enviadaEn = cuando;
     }
 
     public Long getPrimerAcertanteUsuarioId() {
         return primerAcertanteUsuarioId;
+    }
+
+    public boolean isCerrada() {
+        return cerrada;
     }
 }

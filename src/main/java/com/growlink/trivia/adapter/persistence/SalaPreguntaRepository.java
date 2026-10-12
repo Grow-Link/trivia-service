@@ -31,4 +31,18 @@ public interface SalaPreguntaRepository extends JpaRepository<SalaPregunta, Long
     @Query("UPDATE SalaPregunta p SET p.primerAcertanteUsuarioId = :usuarioId " +
            "WHERE p.id = :id AND p.primerAcertanteUsuarioId IS NULL")
     int intentarMarcarPrimerAcertante(@Param("id") Long id, @Param("usuarioId") Long usuarioId);
+
+    // candidatas a vencer por tiempo: la pregunta activa (ya enviada, sin cerrar) de una sala
+    // que sigue en curso. El barredor evalua cada una contra la duracion de su sala y el
+    // margen configurado; esta consulta solo acota el universo, no decide quien vencio
+    @Query("SELECT p FROM SalaPregunta p WHERE p.cerrada = false AND p.enviadaEn IS NOT NULL " +
+           "AND p.salaId IN (SELECT s.id FROM SalaTrivia s WHERE s.estado = 'EN_CURSO')")
+    List<SalaPregunta> buscarActivasSinCerrar();
+
+    // mismo truco de siempre: un solo UPDATE con la condicion en el WHERE. Si responder() y
+    // el barredor de tiempo intentan cerrar la misma pregunta a la vez, solo uno de los dos
+    // gana (el otro ve 0 filas actualizadas y no avanza la partida una segunda vez)
+    @Modifying
+    @Query("UPDATE SalaPregunta p SET p.cerrada = true WHERE p.id = :id AND p.cerrada = false")
+    int intentarCerrar(@Param("id") Long id);
 }

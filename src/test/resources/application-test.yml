@@ -11,3 +11,9 @@ spring:
 growlink:
   jwt:
     secret: secreto-de-pruebas-trivia-service-de-32-bytes-o-mas
+
+trivia:
+  cierre-pregunta:
+    # cortos para que las pruebas del barredor en tiempo real no tengan que esperar segundos
+    margen-ms: 50
+    intervalo-barredor-ms: 100

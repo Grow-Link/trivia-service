@@ -73,6 +73,33 @@ Unirse e iniciar es por WebSocket, no por REST:
 - Un **reto** vence a los 5 minutos (`trivia.retos.vigencia-minutos`). No se puede retar a uno mismo ni mandar dos retos pendientes a la misma persona. Quien reta sale del token, nunca del cuerpo.
 - La prueba de la clase: `PartidaCompletaConcurrenteTest` juega una partida entera con 6 jugadores contestando a la vez, y `infra/scripts/humo` lo repite por WebSocket real.
 
+## Cierre por tiempo de una pregunta
+
+Si se acaba el tiempo de una pregunta y alguien no respondio (o no respondio nadie), la
+partida ya no se queda trabada: el servidor la cierra igual que si todos hubieran
+contestado (quien no respondio queda con 0 puntos, sale el LEADERBOARD, y se activa la
+siguiente pregunta o se finaliza la partida si era la ultima, con las mismas garantias de
+siempre: acta de la partida, aviso a usuarios-service, avisos despues de confirmar el
+guardado).
+
+- Una pregunta vence cuando `ahora > enviadaEn + duracionSegundos de la sala + margen`. El
+  margen es una tolerancia para no castigar una respuesta que llego a tiempo pero con algo
+  de latencia de red (`trivia.cierre-pregunta.margen-ms`, 1000 ms por defecto).
+- `CierrePreguntaScheduler` es un barredor `@Scheduled` (`trivia.cierre-pregunta.intervalo-barredor-ms`,
+  1000 ms por defecto) que corre en **todas las replicas**, no un timer en memoria: si una
+  replica cae, cualquier otra sigue cerrando las preguntas vencidas, porque todo el estado
+  (incluido que una pregunta ya vencio) vive en la base de datos.
+- Cada `SalaPregunta` tiene una columna `cerrada` (default `false`, funciona sobre las filas
+  que ya existian). Se cierra con el mismo truco de siempre, un UPDATE atomico condicionado
+  (`UPDATE ... SET cerrada = true WHERE id = ? AND cerrada = false`), asi que si el barredor y
+  la ultima respuesta llegan casi a la vez, solo uno de los dos de verdad avanza la partida.
+  Responder tambien usa el lock de fila que ya tenia (`buscarConLockPorId`) para que las dos
+  cosas nunca se crucen a medio camino.
+- Una respuesta que llega a una pregunta ya cerrada se rechaza (mensaje de error "Se acabó
+  el tiempo"), igual que cualquier otro error del juego.
+- Si al finalizar nadie sumo puntos, no hay ganador: no se avisa a usuarios-service y no
+  cuenta como trivia ganada. El historial y el salon de la fama ya manejaban ese caso.
+
 ## Por que el UPDATE atomico para iniciar
 
 Es el mismo truco que usamos para los cupos de las oportunidades en el
@@ -95,6 +122,12 @@ mvn test
   usuarios uniendose a la vez, y otra con 10 usuarios respondiendo la misma
   pregunta al mismo tiempo, confirmando que solo uno gana el orden y que la
   partida avanza exactamente una vez, no dos.
+- `CierrePorTiempoTest`: el cierre por tiempo de una pregunta. Nadie responde y la partida
+  avanza hasta terminar; solo responde una parte y avanza igual; una respuesta tardia se
+  rechaza; una partida sin ganador no suma trivia ganada; y con hilos reales, la ultima
+  respuesta compitiendo contra dos "replicas" barriendo al mismo tiempo, confirmando que la
+  partida avanza una sola vez. `application-test.yml` deja el margen y el intervalo del
+  barredor en milisegundos para que estas pruebas no esperen segundos de verdad.
 
 ## Trivias ganadas (HU-22)
 
@@ -143,6 +176,8 @@ Variables de entorno de la App Service:
 | `TRIVIA_BROKER_RELAY_ENABLED` | `true` para usar RabbitMQ (obligatorio si hay mas de una instancia) |
 | `TRIVIA_BROKER_RELAY_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD` | Donde esta el RabbitMQ con el plugin STOMP (puerto 61613) |
 | `TRIVIA_SALA_ACTIVA_MINUTOS` | Opcional, pasado este tiempo una sala sin terminar ya no cuenta como activa en el dashboard (120) |
+| `TRIVIA_CIERRE_MARGEN_MS` | Opcional, tolerancia en ms sobre la duracion de la sala antes de vencer una pregunta (1000) |
+| `TRIVIA_CIERRE_INTERVALO_MS` | Opcional, cada cuanto corre en ms el barredor que cierra preguntas vencidas (1000) |
 
 En la App Service hay que prender **Web sockets** (Configuration > General
 settings), si no la trivia en vivo no conecta.
