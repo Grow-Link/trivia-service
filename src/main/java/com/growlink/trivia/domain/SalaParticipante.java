@@ -3,6 +3,7 @@ package com.growlink.trivia.domain;
 import jakarta.persistence.*;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 // Guardamos el nombre aqui mismo (no solo el id) para no tener que llamar a
 // usuarios-service cada vez que se arma la lista de participantes
@@ -45,12 +46,19 @@ public class SalaParticipante {
     private boolean salidaVoluntaria = false;
 
     // se actualiza cada vez que llega un "unirse" para este usuario y esta sala, incluida la
-    // reconexion idempotente. Es lo que usa SalaWebSocketController.salirPorDesconexion para saber,
-    // sin ningun estado en memoria compartido entre replicas, si hubo una conexion mas nueva que la
-    // caida que esta evaluando el margen de gracia (sin importar en que replica haya pasado).
+    // reconexion idempotente. Es lo que usa SalaService.salirPorDesconexion para saber, sin ningun
+    // estado en memoria compartido entre replicas, si hubo una conexion mas nueva que la de la sesion
+    // que se cayo (comparando con isAfter, sin importar en que replica haya pasado la reconexion).
     // DEFAULT now(): las filas que ya existian antes de esta columna quedan con la hora de la
     // migracion (no con null, que habria que tratar como "muy antigua" en cada comparacion), asi no
-    // se las trata como desconectadas desde siempre apenas se despliega esto
+    // se las trata como desconectadas desde siempre apenas se despliega esto.
+    //
+    // Siempre se trunca a milisegundos al asignarla (ver registrarConexion): isAfter() se usa para
+    // comparar el valor que vuelve de un SELECT (pasado por la precision real de la columna) contra
+    // el que quedo en memoria justo despues de guardarlo, y timestamp(6) en Postgres no siempre trunca
+    // para menos, a veces redondea hacia arriba. Sin truncar los dos lados a la misma precision antes
+    // de comparar, ese redondeo podia hacer que el valor leido de la base pareciera "mas nuevo" que el
+    // original aunque no hubiera pasado ninguna reconexion -- encontrado con una prueba real contra H2
     @Column(nullable = false, columnDefinition = "timestamp(6) with time zone default now()")
     private Instant ultimaConexion;
 
@@ -63,7 +71,7 @@ public class SalaParticipante {
         this.usuarioId = usuarioId;
         this.nombre = nombre;
         this.unidoEn = Instant.now();
-        this.ultimaConexion = this.unidoEn;
+        this.ultimaConexion = this.unidoEn.truncatedTo(ChronoUnit.MILLIS);
     }
 
     public Long getId() {
@@ -109,6 +117,6 @@ public class SalaParticipante {
     }
 
     public void registrarConexion() {
-        this.ultimaConexion = Instant.now();
+        this.ultimaConexion = Instant.now().truncatedTo(ChronoUnit.MILLIS);
     }
 }

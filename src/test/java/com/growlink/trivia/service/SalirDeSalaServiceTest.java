@@ -255,9 +255,9 @@ class SalirDeSalaServiceTest {
         // explicito, se reactiva y puede seguir jugando
         salaService.unirse(sala.getCodigo(), 3L, "Carla");
 
-        var carla = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), 3L).orElseThrow();
-        assertThat(carla.isActivo()).isTrue();
-        assertThat(carla.isSalidaVoluntaria()).isFalse();
+        var carlaActualizada = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), 3L).orElseThrow();
+        assertThat(carlaActualizada.isActivo()).isTrue();
+        assertThat(carlaActualizada.isSalidaVoluntaria()).isFalse();
     }
 
     @Test
