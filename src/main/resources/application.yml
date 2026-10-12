@@ -39,6 +39,12 @@ trivia:
   dashboard:
     # una sala que sigue esperando o en curso despues de este tiempo ya no se cuenta como activa
     sala-activa-minutos: ${TRIVIA_SALA_ACTIVA_MINUTOS:120}
+  cierre-pregunta:
+    # tolerancia sobre la duracion de la sala antes de vencer una pregunta, para no castigar
+    # una respuesta que a tiempo pero le llega al servidor con algo de latencia
+    margen-ms: ${TRIVIA_CIERRE_MARGEN_MS:1000}
+    # cada cuanto corre el barredor que busca preguntas vencidas, en todas las replicas
+    intervalo-barredor-ms: ${TRIVIA_CIERRE_INTERVALO_MS:1000}
 
 usuarios:
   base-url: ${USUARIOS_BASE_URL:http://localhost:8080}
