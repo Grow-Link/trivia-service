@@ -45,6 +45,10 @@ trivia:
     margen-ms: ${TRIVIA_CIERRE_MARGEN_MS:1000}
     # cada cuanto corre el barredor que busca preguntas vencidas, en todas las replicas
     intervalo-barredor-ms: ${TRIVIA_CIERRE_INTERVALO_MS:1000}
+  salida:
+    # si se cae la conexion de un jugador (cerro la pestana, se le fue la red), este es el margen
+    # que se espera antes de tratarlo como que salio de la sala, por si vuelve a unirse solo
+    gracia-ms: ${TRIVIA_SALIDA_GRACIA_MS:8000}
 
 usuarios:
   base-url: ${USUARIOS_BASE_URL:http://localhost:8080}

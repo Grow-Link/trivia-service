@@ -28,6 +28,11 @@ public class SalaTrivia {
     @Column(nullable = false)
     private int duracionSegundos;
 
+    // HU salir-de-sala agrego CANCELADA a este enum. Hibernate le pone a las columnas @Enumerated(STRING)
+    // un check constraint automatico con los valores que tenia el enum cuando CREO la columna, y
+    // ddl-auto=update nunca lo actualiza si la columna ya existia, asi que cualquier base de antes de
+    // esta rama se habria quedado con un check que no incluye CANCELADA. ChecksDeEnumObsoletos (en
+    // config) lo quita solo, una vez, al arrancar contra Postgres -- no hace falta ningun paso manual
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private EstadoSala estado;
@@ -90,5 +95,16 @@ public class SalaTrivia {
 
     public void fijarRevanchaCodigo(String codigo) {
         this.revanchaCodigo = codigo;
+    }
+
+    // HU salir-de-sala: si el host se va mientras la sala sigue en ESPERA, el puesto pasa
+    // al participante mas antiguo que quede
+    public void fijarHostUsuarioId(Long hostUsuarioId) {
+        this.hostUsuarioId = hostUsuarioId;
+    }
+
+    // la sala quedo vacia en ESPERA: nadie puede unirse ni iniciarla, y el dashboard deja de contarla
+    public void marcarCancelada() {
+        this.estado = EstadoSala.CANCELADA;
     }
 }

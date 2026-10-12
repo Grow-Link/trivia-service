@@ -17,3 +17,6 @@ trivia:
     # cortos para que las pruebas del barredor en tiempo real no tengan que esperar segundos
     margen-ms: 50
     intervalo-barredor-ms: 100
+  salida:
+    # corto para que la prueba de desconexion con gracia no tenga que esperar los 8s de produccion
+    gracia-ms: 300

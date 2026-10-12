@@ -63,14 +63,17 @@ public class PartidaService {
 
     // La llama JuegoService dentro de la misma transaccion que cierra la partida.
     // Si por cualquier razon se intenta guardar dos veces la misma sala, la segunda no hace nada.
+    // abandono=true (la partida se corto porque quedo con menos de 2 jugadores activos) deja el
+    // puntaje de cada uno guardado para el historial, pero sin ganador: nadie se gana una trivia
+    // ni entra al salon de la fama por esa partida, aunque haya quedado con mas puntos que el otro
     @Transactional
-    public void registrar(SalaTrivia sala, List<LeaderboardEntry> rankingFinal, long duracionMs) {
+    public void registrar(SalaTrivia sala, List<LeaderboardEntry> rankingFinal, long duracionMs, boolean abandono) {
         if (partidaRepository.existsBySalaId(sala.getId())) {
             return;
         }
         int mayor = rankingFinal.isEmpty() ? 0 : rankingFinal.get(0).puntos();
         long conPuntajeMayor = rankingFinal.stream().filter(e -> e.puntos() == mayor).count();
-        boolean hayGanador = mayor > 0;
+        boolean hayGanador = !abandono && mayor > 0;
         LeaderboardEntry ganador = hayGanador ? rankingFinal.get(0) : null;
 
         PartidaResultado partida = partidaRepository.save(new PartidaResultado(sala, rankingFinal.size(),
