@@ -77,6 +77,14 @@ public class JuegoService {
             throw new JuegoNoDisponibleException("La sala " + codigo + " no esta en curso");
         }
 
+        // si ya salio de la sala (cerro la pestana, se cayo la red, o mando "salir") su respuesta
+        // ya no cuenta, igual que si la pregunta ya hubiera vencido
+        SalaParticipante participante = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), usuarioId)
+                .orElseThrow(() -> new JuegoNoDisponibleException("No eres participante de la sala " + codigo));
+        if (!participante.isActivo()) {
+            throw new JuegoNoDisponibleException("Ya saliste de la sala " + codigo);
+        }
+
         SalaPregunta referencia = salaPreguntaRepository.findBySalaIdAndIndice(sala.getId(), indice)
                 .orElseThrow(() -> new JuegoNoDisponibleException("No existe la pregunta " + indice + " en esta sala"));
 
@@ -113,7 +121,8 @@ public class JuegoService {
         }
 
         long totalRespuestas = respuestaRepository.countBySalaPreguntaId(pregunta.getId());
-        long totalParticipantes = participanteRepository.countBySalaId(sala.getId());
+        // solo los activos: si alguien ya salio no se espera su respuesta para cerrar la pregunta
+        long totalParticipantes = participanteRepository.countBySalaIdAndActivoTrue(sala.getId());
 
         // con el lock de la fila, solo una respuesta ve el conteo en 1
         if (totalRespuestas == 1) {
@@ -142,10 +151,22 @@ public class JuegoService {
 
         boolean eraLaUltima = pregunta.getIndice() == sala.getNumPreguntas() - 1;
         if (eraLaUltima) {
-            finalizarJuego(sala, ranking);
+            finalizar(sala, ranking, false);
         } else {
             activarPregunta(sala, pregunta.getIndice() + 1);
         }
+    }
+
+    // HU salir-de-sala: la llama SalaWebSocketController despues de que SalaService.salir() deja la
+    // sala con menos de 2 participantes activos. No se puede seguir jugando con un solo jugador (o
+    // ninguno), asi que la partida se corta aqui aunque falten preguntas por responder
+    @Transactional
+    public void finalizarPorAbandono(String codigo) {
+        SalaTrivia sala = salaRepository.findByCodigo(codigo).orElse(null);
+        if (sala == null || sala.getEstado() != EstadoSala.EN_CURSO) {
+            return; // ya se habia cerrado por el otro camino (la ultima pregunta, o el barredor)
+        }
+        finalizar(sala, calcularLeaderboard(sala.getId()), true);
     }
 
     // la llama CierrePreguntaScheduler, una vez por cada pregunta activa que encuentra en su
@@ -180,14 +201,16 @@ public class JuegoService {
                         pregunta.getOpciones(), sala.getDuracionSegundos(), pregunta.getEnviadaEn().toEpochMilli()));
     }
 
-    private void finalizarJuego(SalaTrivia sala, List<LeaderboardEntry> rankingFinal) {
-        salaRepository.intentarFinalizar(sala.getId());
-
-        // ganan todos los que quedaron con el puntaje mas alto, siempre que de verdad hayan sumado puntos
-        int mayorPuntaje = rankingFinal.isEmpty() ? 0 : rankingFinal.get(0).puntos();
-        List<Long> ganadores = mayorPuntaje <= 0 ? List.<Long>of() : rankingFinal.stream()
-                .filter(e -> e.puntos() == mayorPuntaje).map(LeaderboardEntry::usuarioId).toList();
-        Long ganadorUsuarioId = ganadores.isEmpty() ? null : ganadores.get(0);
+    // la llama tanto el camino normal (se respondio o se vencio por tiempo la ultima pregunta) como
+    // el de abandono (SalaService.salir() dejo la sala con menos de 2 activos). intentarFinalizar
+    // es el mismo UPDATE atomico con el estado esperado en el WHERE que usa el resto de la clase: si
+    // los dos caminos le pegan a la misma sala casi al mismo tiempo (alguien responde la ultima
+    // pregunta justo cuando el otro jugador sale), solo el primero en llegar de verdad la cierra y
+    // el segundo no hace nada, en vez de que la sala quede finalizada dos veces o con dos actas
+    private void finalizar(SalaTrivia sala, List<LeaderboardEntry> rankingFinal, boolean abandono) {
+        if (salaRepository.intentarFinalizar(sala.getId()) == 0) {
+            return;
+        }
 
         // duracion total, desde que salio la primera pregunta hasta ahora
         long duracionMs = salaPreguntaRepository.findBySalaIdAndIndice(sala.getId(), 0)
@@ -195,8 +218,23 @@ public class JuegoService {
                 .orElse(0L);
         metricaService.registrarPartidaFinalizada(sala.getId(), duracionMs, rankingFinal.size());
 
-        // el acta de la partida queda guardada en la misma transaccion que la cierra
-        partidaService.registrar(sala, rankingFinal, duracionMs);
+        // el acta de la partida queda guardada en la misma transaccion que la cierra; si fue por
+        // abandono, PartidaService no le pone ganador aunque alguien haya quedado con mas puntos
+        partidaService.registrar(sala, rankingFinal, duracionMs, abandono);
+
+        if (abandono) {
+            // sin ganador, sin aviso a usuarios-service: nadie se gana una trivia por abandono
+            // de su rival (asi no se cultivan gotas del jardin jugando contra uno mismo)
+            difundir(Destinos.sala(sala.getCodigo()),
+                    ResultadosFinalesBroadcast.porAbandono(sala.getCodigo(), rankingFinal, sala.getNumPreguntas()));
+            return;
+        }
+
+        // ganan todos los que quedaron con el puntaje mas alto, siempre que de verdad hayan sumado puntos
+        int mayorPuntaje = rankingFinal.isEmpty() ? 0 : rankingFinal.get(0).puntos();
+        List<Long> ganadores = mayorPuntaje <= 0 ? List.<Long>of() : rankingFinal.stream()
+                .filter(e -> e.puntos() == mayorPuntaje).map(LeaderboardEntry::usuarioId).toList();
+        Long ganadorUsuarioId = ganadores.isEmpty() ? null : ganadores.get(0);
 
         // HU-22: cada ganador suma una trivia ganada (si hay empate, todos los que empataron)
         // se avisa a usuarios-service hasta que la partida quedo guardada

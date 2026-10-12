@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -63,9 +65,29 @@ public class SalaService {
         return salaRepository.buscarConLockPorCodigo(codigo).orElseThrow(() -> new SalaNoEncontradaException(codigo));
     }
 
+    // El lock de fila (el mismo que usa salir/salirPorDesconexion sobre la misma sala) es lo que
+    // permite que ultimaConexion sea confiable entre replicas: cualquier "unirse" y cualquier
+    // evaluacion del margen de gracia para esa misma sala quedan en fila una tras otra, nunca se
+    // entrelazan, sin importar en que replica haya llegado cada mensaje
     @Transactional
     public SalaParticipante unirse(String codigo, Long usuarioId, String nombre) {
-        SalaTrivia sala = obtenerPorCodigo(codigo);
+        SalaTrivia sala = obtenerConLockPorCodigo(codigo);
+
+        // reconexion (cerro la pestana o se le fue la red, y volvio antes de que se cumpliera el
+        // margen de gracia): ya era participante, no hay nada que crear. Si se habia marcado
+        // inactivo por la desconexion (no por un "salir" explicito) y la partida sigue en curso,
+        // esta reconexion lo reactiva; si salio a proposito, se queda inactivo tal cual estaba
+        Optional<SalaParticipante> existente = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), usuarioId);
+        if (existente.isPresent()) {
+            SalaParticipante participante = existente.get();
+            participante.registrarConexion();
+            if (sala.getEstado() == EstadoSala.EN_CURSO && !participante.isActivo() && !participante.isSalidaVoluntaria()) {
+                participante.reactivar();
+            }
+            participanteRepository.save(participante);
+            return participante;
+        }
+
         if (sala.getEstado() != EstadoSala.ESPERANDO) {
             throw new SalaYaEmpezoException(codigo);
         }
@@ -119,6 +141,82 @@ public class SalaService {
         salaVieja.fijarRevanchaCodigo(nueva.getCodigo());
         salaRepository.save(salaVieja);
         return nueva;
+    }
+
+    // lo que le hace falta al controlador de WebSocket para armar el JUGADOR_SALIO y decidir si
+    // tiene que avisar el estado de la sala de espera o pedirle a JuegoService que cierre la partida.
+    // null significa que no habia nada que hacer (ya no era participante, ya habia salido, o la
+    // sala ya termino), asi "salir" queda siendo idempotente sin que el llamador tenga que adivinar
+    public record SalidaResultado(Long usuarioId, String nombre, Long nuevoHostUsuarioId, EstadoSala estado,
+                                  boolean terminarPartida) {
+    }
+
+    // HU salir-de-sala, mensaje explicito "/salir". El lock de fila sobre la sala (mismo que usa
+    // crearRevancha) sirve para que, si dos jugadores se van casi al mismo tiempo mientras la sala
+    // sigue en ESPERA, el traspaso de host y el conteo de "ya no queda nadie" se decidan uno
+    // despues del otro y no con datos viejos. Una salida explicita siempre se aplica: a diferencia
+    // de salirPorDesconexion, aqui no hay margen de gracia que pueda deshacerla
+    @Transactional
+    public SalidaResultado salir(String codigo, Long usuarioId) {
+        SalaTrivia sala = obtenerConLockPorCodigo(codigo);
+        SalaParticipante participante = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), usuarioId).orElse(null);
+        return aplicarSalida(sala, participante, usuarioId, true);
+    }
+
+    // La llama SalaWebSocketController cuando se cumple el margen de gracia despues de que se cayo
+    // una conexion. momentoDesconexion es la hora en que esa caida se detecto (en la replica que
+    // tenia la conexion). En vez de depender de un mapa en memoria para cancelar el temporizador si
+    // el jugador vuelve a conectarse (que se rompe si reconecta a OTRA replica, cada una con su
+    // propia memoria), se compara contra SalaParticipante.ultimaConexion: ese campo lo actualiza
+    // unirse() en la base de datos compartida, sin importar a que replica haya llegado la reconexion.
+    // Si ya hay una conexion igual o mas nueva que la caida, esta desconexion ya no cuenta como salida
+    @Transactional
+    public SalidaResultado salirPorDesconexion(String codigo, Long usuarioId, Instant momentoDesconexion) {
+        SalaTrivia sala = obtenerConLockPorCodigo(codigo);
+        SalaParticipante participante = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), usuarioId).orElse(null);
+        if (participante != null && !participante.getUltimaConexion().isBefore(momentoDesconexion)) {
+            return null; // hubo una (re)conexion despues de esta caida, en esta replica o en otra
+        }
+        return aplicarSalida(sala, participante, usuarioId, false);
+    }
+
+    // voluntaria distingue un "salir" explicito de una desconexion que agoto su margen de gracia:
+    // solo la primera deja al participante marcado para que una reconexion posterior ya NO lo
+    // reactive dentro de una partida en curso (ver unirse())
+    private SalidaResultado aplicarSalida(SalaTrivia sala, SalaParticipante participante, Long usuarioId, boolean voluntaria) {
+        if (sala.getEstado() == EstadoSala.ESPERANDO) {
+            if (participante == null) {
+                return null; // ya no estaba (p.ej. segunda vez que manda "salir")
+            }
+            participanteRepository.delete(participante);
+
+            Long nuevoHost = null;
+            if (sala.getHostUsuarioId().equals(usuarioId)) {
+                nuevoHost = participanteRepository.findFirstBySalaIdOrderByUnidoEnAsc(sala.getId())
+                        .map(SalaParticipante::getUsuarioId).orElse(null);
+                if (nuevoHost != null) {
+                    sala.fijarHostUsuarioId(nuevoHost);
+                }
+            }
+            if (participanteRepository.countBySalaId(sala.getId()) == 0) {
+                sala.marcarCancelada();
+            }
+            salaRepository.save(sala);
+            return new SalidaResultado(usuarioId, participante.getNombre(), nuevoHost, sala.getEstado(), false);
+        }
+
+        if (sala.getEstado() == EstadoSala.EN_CURSO) {
+            if (participante == null || !participante.isActivo()) {
+                return null; // ya no estaba o ya habia salido antes, idempotente
+            }
+            participante.marcarInactivo(voluntaria);
+            participanteRepository.save(participante);
+            long activos = participanteRepository.countBySalaIdAndActivoTrue(sala.getId());
+            return new SalidaResultado(usuarioId, participante.getNombre(), null, sala.getEstado(), activos < 2);
+        }
+
+        // FINALIZADA o CANCELADA: salir no hace nada especial, no rompe la revancha ni el historial
+        return null;
     }
 
     private String generarCodigoUnico() {
