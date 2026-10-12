@@ -11,6 +11,7 @@ import com.growlink.trivia.application.UsuariosClient;
 import com.growlink.trivia.domain.Categoria;
 import com.growlink.trivia.domain.EstadoSala;
 import com.growlink.trivia.domain.PartidaResultado;
+import com.growlink.trivia.domain.SalaParticipante;
 import com.growlink.trivia.domain.SalaTrivia;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -189,18 +190,20 @@ class SalirDeSalaServiceTest {
     // Simula el problema de varias replicas: el temporizador de gracia (en SalaWebSocketController)
     // vive en memoria de la replica que tenia la conexion, pero la reconexion puede llegar a
     // CUALQUIER otra replica. Aqui no hay ningun mapa en memoria involucrado: se llama directo a
-    // salirPorDesconexion (lo que haria el temporizador de "la replica A" al cumplirse el margen)
-    // despues de que unirse() (lo que atenderia "la replica B") ya actualizo ultimaConexion en la
-    // base de datos compartida. Si la correccion funciona, la desconexion ya no cuenta como salida.
+    // salirPorDesconexion (lo que haria el temporizador de "la replica A" al cumplirse el margen),
+    // pasandole la conexion que tenia Beto cuando se unio (lo que el controlador capturo ahi mismo,
+    // no una hora de desconexion aparte), despues de que unirse() (lo que atenderia "la replica B")
+    // ya actualizo ultimaConexion en la base de datos compartida. Si la correccion funciona, la
+    // desconexion ya no cuenta como salida.
     @Test
     void reconexionEnOtraReplica_cancelaLaSalidaPorDesconexionAunqueElTemporizadorSigaCorriendo() throws InterruptedException {
         SalaTrivia sala = salaService.crear(Categoria.INGENIERIA_SISTEMAS, 1L, "Ana", 5, 10);
-        salaService.unirse(sala.getCodigo(), 2L, "Beto");
+        SalaParticipante beto = salaService.unirse(sala.getCodigo(), 2L, "Beto");
         salaService.iniciar(sala.getCodigo());
         juegoService.empezarJuego(salaService.obtenerPorCodigo(sala.getCodigo()));
 
-        // "la replica A" detecta la caida de Beto y guarda la hora
-        Instant momentoDesconexion = Instant.now();
+        // "la replica A" guarda la conexion que tenia Beto cuando se unio
+        Instant conexionDeLaSesionQueSeFue = beto.getUltimaConexion();
         Thread.sleep(5); // asegura que la reconexion quede estrictamente despues, sin depender de la resolucion del reloj
 
         // Beto recarga la pagina y su nueva conexion cae en "la replica B": ella no sabe nada
@@ -208,8 +211,8 @@ class SalirDeSalaServiceTest {
         salaService.unirse(sala.getCodigo(), 2L, "Beto");
 
         // ahora se cumple el margen de gracia en "la replica A": su temporizador llama a
-        // salirPorDesconexion con la hora que guardo, sin haberse enterado nunca de la reconexion
-        SalaService.SalidaResultado resultado = salaService.salirPorDesconexion(sala.getCodigo(), 2L, momentoDesconexion);
+        // salirPorDesconexion con la conexion vieja que guardo, sin haberse enterado nunca de la reconexion
+        SalaService.SalidaResultado resultado = salaService.salirPorDesconexion(sala.getCodigo(), 2L, conexionDeLaSesionQueSeFue);
 
         assertThat(resultado).isNull(); // la reconexion (en la OTRA replica) la cancelo
         assertThat(participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), 2L).orElseThrow().isActivo()).isTrue();
@@ -220,34 +223,32 @@ class SalirDeSalaServiceTest {
     void desconexionSinReconexionEnNingunaReplica_siCuentaComoSalidaAlCumplirseLaGracia() {
         SalaTrivia sala = salaService.crear(Categoria.INGENIERIA_SISTEMAS, 1L, "Ana", 5, 10);
         salaService.unirse(sala.getCodigo(), 2L, "Beto");
-        salaService.unirse(sala.getCodigo(), 3L, "Carla"); // 3 participantes, para que no termine la partida
+        SalaParticipante carla = salaService.unirse(sala.getCodigo(), 3L, "Carla"); // 3 participantes, para que no termine la partida
 
         salaService.iniciar(sala.getCodigo());
         juegoService.empezarJuego(salaService.obtenerPorCodigo(sala.getCodigo()));
 
-        // momentoDesconexion queda despues de la ultima conexion registrada de Carla (la de "unirse"
-        // de arriba), y nadie vuelve a conectarse en ninguna replica antes de que el temporizador evalue
-        Instant momentoDesconexion = Instant.now();
-
-        SalaService.SalidaResultado resultado = salaService.salirPorDesconexion(sala.getCodigo(), 3L, momentoDesconexion);
+        // nadie vuelve a conectarse en ninguna replica antes de que el temporizador evalue, asi que la
+        // conexion de Carla sigue siendo la misma que tenia cuando se unio
+        SalaService.SalidaResultado resultado = salaService.salirPorDesconexion(sala.getCodigo(), 3L, carla.getUltimaConexion());
 
         assertThat(resultado).isNotNull();
         assertThat(resultado.terminarPartida()).isFalse(); // quedan Ana y Beto, 2 activos
-        var carla = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), 3L).orElseThrow();
-        assertThat(carla.isActivo()).isFalse();
-        assertThat(carla.isSalidaVoluntaria()).isFalse(); // fue por desconexion, no por "salir"
+        var carlaActualizada = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), 3L).orElseThrow();
+        assertThat(carlaActualizada.isActivo()).isFalse();
+        assertThat(carlaActualizada.isSalidaVoluntaria()).isFalse(); // fue por desconexion, no por "salir"
     }
 
     @Test
     void reconectarseDespuesDeUnaDesconexionConGracia_reactivaAlParticipante() {
         SalaTrivia sala = salaService.crear(Categoria.INGENIERIA_SISTEMAS, 1L, "Ana", 5, 10);
         salaService.unirse(sala.getCodigo(), 2L, "Beto");
-        salaService.unirse(sala.getCodigo(), 3L, "Carla");
+        SalaParticipante carla = salaService.unirse(sala.getCodigo(), 3L, "Carla");
         salaService.iniciar(sala.getCodigo());
         juegoService.empezarJuego(salaService.obtenerPorCodigo(sala.getCodigo()));
 
         // el margen de gracia de Carla se cumplio sin que nadie la viera reconectarse
-        salaService.salirPorDesconexion(sala.getCodigo(), 3L, Instant.now());
+        salaService.salirPorDesconexion(sala.getCodigo(), 3L, carla.getUltimaConexion());
         assertThat(participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), 3L).orElseThrow().isActivo()).isFalse();
 
         // pero mas tarde si vuelve a mandar "unirse" (a cualquier replica): como no fue un "salir"

@@ -164,18 +164,24 @@ public class SalaService {
     }
 
     // La llama SalaWebSocketController cuando se cumple el margen de gracia despues de que se cayo
-    // una conexion. momentoDesconexion es la hora en que esa caida se detecto (en la replica que
-    // tenia la conexion). En vez de depender de un mapa en memoria para cancelar el temporizador si
-    // el jugador vuelve a conectarse (que se rompe si reconecta a OTRA replica, cada una con su
-    // propia memoria), se compara contra SalaParticipante.ultimaConexion: ese campo lo actualiza
-    // unirse() en la base de datos compartida, sin importar a que replica haya llegado la reconexion.
-    // Si ya hay una conexion igual o mas nueva que la caida, esta desconexion ya no cuenta como salida
+    // una conexion. ultimaConexionDeLaSesionQueSeFue es el valor exacto que tenia
+    // SalaParticipante.ultimaConexion cuando ESA sesion hizo "unirse" (lo captura el controlador ahi
+    // mismo, no es "la hora en que se detecto la caida"): si para cuando se evalua esto el valor en la
+    // base de datos sigue siendo ese mismo, nadie volvio a conectarse y la desconexion cuenta como
+    // salida; si es mas nuevo, alguien ya se reconecto (a esta replica o a cualquier otra, todas
+    // comparten la misma base de datos) y no hay nada que hacer.
+    //
+    // A proposito NO se compara contra "la hora en que este proceso detecto la desconexion": bajo
+    // carga, el evento de desconexion del WebSocket puede tardar en procesarse mas que la reconexion
+    // misma, y comparar contra esa hora de deteccion (en vez de contra la conexion de la sesion que se
+    // fue) puede invertir el orden y tratar una reconexion legitima como si no hubiera pasado. Esto se
+    // encontro en CI: la reconexion llegaba a tiempo pero el chequeo igual disparaba la salida.
     @Transactional
-    public SalidaResultado salirPorDesconexion(String codigo, Long usuarioId, Instant momentoDesconexion) {
+    public SalidaResultado salirPorDesconexion(String codigo, Long usuarioId, Instant ultimaConexionDeLaSesionQueSeFue) {
         SalaTrivia sala = obtenerConLockPorCodigo(codigo);
         SalaParticipante participante = participanteRepository.findBySalaIdAndUsuarioId(sala.getId(), usuarioId).orElse(null);
-        if (participante != null && !participante.getUltimaConexion().isBefore(momentoDesconexion)) {
-            return null; // hubo una (re)conexion despues de esta caida, en esta replica o en otra
+        if (participante != null && participante.getUltimaConexion().isAfter(ultimaConexionDeLaSesionQueSeFue)) {
+            return null; // ya hay una conexion mas nueva que la de la sesion que se cayo
         }
         return aplicarSalida(sala, participante, usuarioId, false);
     }

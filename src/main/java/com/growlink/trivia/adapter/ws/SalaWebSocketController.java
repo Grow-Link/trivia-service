@@ -34,15 +34,21 @@ public class SalaWebSocketController implements ApplicationListener<SessionDisco
     private final TaskScheduler taskScheduler;
     private final long graciaSalidaMs;
 
-    // en que sala y como que usuario esta cada sesion de WebSocket, para saber a quien tratar
-    // como salida si la conexion se cae. Es estado de la conexion (no de la partida), asi que
-    // vivir en memoria por replica esta bien: si esa replica cae, la conexion tambien cae con ella.
-    // Lo que SI podria pasar a otra replica es la reconexion, y por eso esta clase no intenta
-    // cancelar el temporizador de gracia por su cuenta: SalaService.salirPorDesconexion decide,
-    // leyendo SalaParticipante.ultimaConexion en la base de datos, si de verdad hubo salida
+    // en que sala, como que usuario, y con que "version" de conexion esta cada sesion de WebSocket,
+    // para saber a quien tratar como salida si la conexion se cae. Es estado de la conexion (no de la
+    // partida), asi que vivir en memoria por replica esta bien: si esa replica cae, la conexion
+    // tambien cae con ella. Lo que SI podria pasar a otra replica es la reconexion, y por eso esta
+    // clase no intenta cancelar el temporizador de gracia por su cuenta: SalaService.salirPorDesconexion
+    // decide, leyendo SalaParticipante.ultimaConexion en la base de datos, si de verdad hubo salida
     private final Map<String, Participante> porSesion = new ConcurrentHashMap<>();
 
-    private record Participante(String codigo, Long usuarioId) {
+    // ultimaConexion es el valor exacto que SalaParticipante.ultimaConexion tenia justo cuando ESTA
+    // sesion hizo "unirse" (lo que devolvio salaService.unirse(), no un Instant.now() aparte). Si al
+    // cumplirse el margen de gracia el valor en la base de datos sigue siendo ese mismo, nadie volvio
+    // a conectarse; si es mas nuevo, alguien ya se reconecto. A proposito no se usa "la hora en que se
+    // detecto la desconexion": bajo carga esa deteccion puede demorarse mas que la reconexion misma y
+    // terminar comparando en el orden equivocado (ver el comentario de salirPorDesconexion)
+    private record Participante(String codigo, Long usuarioId, Instant ultimaConexion) {
     }
 
     public SalaWebSocketController(SalaService salaService, JuegoService juegoService,
@@ -59,8 +65,8 @@ public class SalaWebSocketController implements ApplicationListener<SessionDisco
     public void unirse(@DestinationVariable String codigo, @Payload UnirseRequest request,
                         @Header("simpSessionId") String sessionId) {
         intentar(codigo, () -> {
-            salaService.unirse(codigo, request.usuarioId(), request.nombre());
-            porSesion.put(sessionId, new Participante(codigo, request.usuarioId()));
+            SalaParticipante participante = salaService.unirse(codigo, request.usuarioId(), request.nombre());
+            porSesion.put(sessionId, new Participante(codigo, request.usuarioId(), participante.getUltimaConexion()));
             avisarATodos(codigo);
         });
     }
@@ -73,20 +79,20 @@ public class SalaWebSocketController implements ApplicationListener<SessionDisco
     // se dispara cuando se cae la conexion (cerraron la pestana, se les fue la red, etc). No se
     // trata como salida de inmediato: se espera un margen corto por si es un refresh de pagina o
     // una caida de red momentanea y el cliente vuelve a mandar "unirse", a esta misma replica o a
-    // cualquier otra. momentoDesconexion queda fijo ahora, antes de esperar, para que
-    // salirPorDesconexion pueda comparar contra la ultima conexion de verdad que haya en la base de
-    // datos en el momento en que el margen se cumpla
+    // cualquier otra. Se le pasa a salirPorDesconexion la conexion que tenia ESTA sesion al unirse
+    // (no "la hora en que se detecto la caida"), ver el comentario de Participante y de
+    // SalaService.salirPorDesconexion para el porque
     @Override
     public void onApplicationEvent(SessionDisconnectEvent event) {
         Participante participante = porSesion.remove(event.getSessionId());
         if (participante == null) {
             return; // esta sesion nunca llego a unirse a ninguna sala
         }
-        Instant momentoDesconexion = Instant.now();
         try {
             taskScheduler.schedule(
                     () -> intentar(participante.codigo(), () -> emitirSalida(participante.codigo(), participante.usuarioId(),
-                            salaService.salirPorDesconexion(participante.codigo(), participante.usuarioId(), momentoDesconexion))),
+                            salaService.salirPorDesconexion(participante.codigo(), participante.usuarioId(),
+                                    participante.ultimaConexion()))),
                     Instant.now().plusMillis(graciaSalidaMs));
         } catch (RejectedExecutionException e) {
             // la instancia se esta apagando y su TaskScheduler ya cerro: las conexiones se cierran
