@@ -15,9 +15,10 @@ import java.net.InetAddress;
 
 // pone en cada respuesta el nombre de la instancia que la atendio (en Docker es el id del contenedor)
 // sirve para ver el balanceo: si hay varias replicas, el header va cambiando entre peticiones
-// va primero en la cadena para que salga tambien en las respuestas rechazadas (401, 403)
+// va casi primero en la cadena para que salga tambien en las respuestas rechazadas (401, 403);
+// solo lo antecede RequestIdFilter, que tiene que poner el id en el MDC antes de cualquier log
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class InstanciaHeaderFilter extends OncePerRequestFilter {
 
     private final String instancia = nombreDeInstancia();

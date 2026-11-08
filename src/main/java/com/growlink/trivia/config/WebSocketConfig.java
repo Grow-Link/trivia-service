@@ -2,10 +2,13 @@ package com.growlink.trivia.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+
+import java.util.Optional;
 
 // Mismo esquema que ya usamos en realtime-service: el cliente manda a /app/..
 // y escucha lo que pasa en la sala en /topic/..
@@ -27,16 +30,31 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final String relayUsuario;
     private final String relayClave;
 
+    // vacio con auth.mode=legacy, presente con auth.mode=oidc (ver AuthModeConfig). Se recibe
+    // como Optional y no con @Autowired(required=false) para que quede escrito en la firma que
+    // puede no estar: en legacy el canal de entrada no lleva ningun interceptor nuevo
+    private final Optional<StompAuthChannelInterceptor> autenticacion;
+
     public WebSocketConfig(@Value("${trivia.broker.relay.enabled:false}") boolean relayActivo,
                            @Value("${trivia.broker.relay.host:localhost}") String relayHost,
                            @Value("${trivia.broker.relay.port:61613}") int relayPort,
                            @Value("${trivia.broker.relay.username:guest}") String relayUsuario,
-                           @Value("${trivia.broker.relay.password:guest}") String relayClave) {
+                           @Value("${trivia.broker.relay.password:guest}") String relayClave,
+                           Optional<StompAuthChannelInterceptor> autenticacion) {
         this.relayActivo = relayActivo;
         this.relayHost = relayHost;
         this.relayPort = relayPort;
         this.relayUsuario = relayUsuario;
         this.relayClave = relayClave;
+        this.autenticacion = autenticacion;
+    }
+
+    // Por aqui pasa TODO lo que manda el cliente (el CONNECT y cada SEND). En modo oidc es donde
+    // se valida el token del CONNECT y se le pone el Principal a la sesion; en modo legacy no se
+    // engancha nada y el canal queda exactamente como estaba antes de esta HU
+    @Override
+    public void configureClientInboundChannel(ChannelRegistration registration) {
+        autenticacion.ifPresent(registration::interceptors);
     }
 
     @Override

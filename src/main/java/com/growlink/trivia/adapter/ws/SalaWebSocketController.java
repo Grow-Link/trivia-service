@@ -1,5 +1,6 @@
 package com.growlink.trivia.adapter.ws;
 
+import com.growlink.trivia.adapter.security.JugadorPrincipal;
 import com.growlink.trivia.adapter.ws.dto.*;
 import com.growlink.trivia.application.Destinos;
 import com.growlink.trivia.application.JuegoService;
@@ -18,6 +19,7 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
+import java.security.Principal;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -61,19 +63,38 @@ public class SalaWebSocketController implements ApplicationListener<SessionDisco
         this.graciaSalidaMs = graciaSalidaMs;
     }
 
+    // La identidad del jugador la manda el Principal de la sesion cuando hay uno: con
+    // auth.mode=oidc lo puso StompAuthChannelInterceptor en el CONNECT, con el sub de un token
+    // ya verificado. En ese caso el usuarioId que venga DENTRO del mensaje se ignora: si se
+    // usara, cualquiera con la conexion abierta podria mandar un "responder" o un "salir" con el
+    // id de otro jugador y jugar (o sacar de la sala) en su nombre, que es justo lo que el token
+    // viene a evitar. El nombre si se sigue tomando del mensaje, porque no es una credencial y
+    // el token no tiene por que traerlo.
+    //
+    // Sin Principal (auth.mode=legacy, el valor por defecto) se usa el del payload, que es como
+    // venia funcionando: los clientes que ya existen no tienen que cambiar nada.
+    private static Long identidad(Principal principal, Long usuarioIdDelMensaje) {
+        if (principal instanceof JugadorPrincipal jugador) {
+            return jugador.usuarioId();
+        }
+        return usuarioIdDelMensaje;
+    }
+
     @MessageMapping("/salas/{codigo}/unirse")
     public void unirse(@DestinationVariable String codigo, @Payload UnirseRequest request,
-                        @Header("simpSessionId") String sessionId) {
+                        @Header("simpSessionId") String sessionId, Principal principal) {
+        Long usuarioId = identidad(principal, request.usuarioId());
         intentar(codigo, () -> {
-            SalaParticipante participante = salaService.unirse(codigo, request.usuarioId(), request.nombre());
-            porSesion.put(sessionId, new Participante(codigo, request.usuarioId(), participante.getUltimaConexion()));
+            SalaParticipante participante = salaService.unirse(codigo, usuarioId, request.nombre());
+            porSesion.put(sessionId, new Participante(codigo, usuarioId, participante.getUltimaConexion()));
             avisarATodos(codigo);
         });
     }
 
     @MessageMapping("/salas/{codigo}/salir")
-    public void salir(@DestinationVariable String codigo, @Payload SalirRequest request) {
-        intentar(codigo, () -> emitirSalida(codigo, request.usuarioId(), salaService.salir(codigo, request.usuarioId())));
+    public void salir(@DestinationVariable String codigo, @Payload SalirRequest request, Principal principal) {
+        Long usuarioId = identidad(principal, request.usuarioId());
+        intentar(codigo, () -> emitirSalida(codigo, usuarioId, salaService.salir(codigo, usuarioId)));
     }
 
     // se dispara cuando se cae la conexion (cerraron la pestana, se les fue la red, etc). No se
@@ -125,18 +146,22 @@ public class SalaWebSocketController implements ApplicationListener<SessionDisco
     }
 
     @MessageMapping("/salas/{codigo}/responder")
-    public void responder(@DestinationVariable String codigo, @Payload RespuestaRequest request) {
+    public void responder(@DestinationVariable String codigo, @Payload RespuestaRequest request,
+                           Principal principal) {
+        Long usuarioId = identidad(principal, request.usuarioId());
         intentar(codigo, () ->
-                juegoService.responder(codigo, request.usuarioId(), request.indice(), request.opcionElegida()));
+                juegoService.responder(codigo, usuarioId, request.indice(), request.opcionElegida()));
     }
 
     // el servicio ya confirmo la transaccion cuando esto se ejecuta (crearRevancha es
     // @Transactional y aqui ya retorno), asi que nadie recibe el codigo nuevo antes de
     // que la sala exista de verdad en la base de datos
     @MessageMapping("/salas/{codigo}/revancha")
-    public void revancha(@DestinationVariable String codigo, @Payload RevanchaRequest request) {
+    public void revancha(@DestinationVariable String codigo, @Payload RevanchaRequest request,
+                          Principal principal) {
+        Long usuarioId = identidad(principal, request.usuarioId());
         intentar(codigo, () -> {
-            SalaTrivia nueva = salaService.crearRevancha(codigo, request.usuarioId(), request.nombre());
+            SalaTrivia nueva = salaService.crearRevancha(codigo, usuarioId, request.nombre());
             String hostNombre = salaService.listarParticipantes(nueva.getId()).stream()
                     .filter(p -> p.getUsuarioId().equals(nueva.getHostUsuarioId()))
                     .map(SalaParticipante::getNombre)

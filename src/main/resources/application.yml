@@ -15,9 +15,62 @@ spring:
   jackson:
     default-property-inclusion: non_null
 
+# Actuator, con lo MINIMO abierto:
+#   health (+ las dos probes) porque el balanceador y el orquestador tienen que poder preguntar
+#     si la instancia esta viva y si ya puede recibir trafico. Las probes no se activan solas
+#     fuera de Kubernetes, hay que pedirlas a mano.
+#   prometheus porque es de donde el tablero saca las metricas del servicio.
+# Todo lo demas queda cerrado: /actuator/info, /actuator/metrics, /actuator/env, /actuator/beans,
+# etc. responden 404 (aunque actuator los traiga, no se exponen por web).
+#
+# show-details: never -> /actuator/health devuelve solo {"status":"UP"}. Sin esto el detalle
+# cuenta de mas a cualquiera que pregunte: el estado de la base de datos, el espacio en disco y
+# las piezas de las que depende el servicio, que es informacion util para quien lo quiera atacar.
+#
+# Estos endpoints quedan publicos: el servicio no monta una cadena de filtros de seguridad (ver
+# TokenService, la autenticacion se exige endpoint por endpoint), y RequestIdFilter y
+# InstanciaHeaderFilter solo agregan headers, no rechazan nada. Si algun dia se mete Spring
+# Security, /actuator/health/** tiene que quedar en permitAll para que el balanceador y el
+# orquestador sigan pudiendo preguntar si la instancia esta viva.
+#
+# /actuator/prometheus SI queda publico, y eso hay que cerrarlo por fuera del codigo. Lo que
+# expone no son credenciales, pero si el mapa interno del servicio (rutas, nombres de las salas
+# de metricas, volumen de trafico, memoria). Dos formas de restringirlo, en orden de preferencia:
+#
+#   1. Sacar el actuator a un puerto aparte que no se publique al internet, y dejar que solo lo
+#      alcance la red interna donde vive el scrape de Prometheus. Es lo mas limpio porque no
+#      depende de reglas en el proxy:
+#          management.server.port: 9090
+#          management.server.address: 127.0.0.1
+#      (ojo: con esto /actuator/health TAMBIEN se mueve a ese puerto, hay que apuntar ahi las
+#      probes del orquestador y el health check del balanceador)
+#   2. Dejarlo en el mismo puerto y bloquear /actuator/** en el gateway o el ingress, abriendo
+#      solo /actuator/health/** al balanceador y /actuator/prometheus al rango del scrape.
+#
+# Las dos son configuracion de despliegue, asi que quedan escritas aqui y no aplicadas.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
 logging:
   level:
     com.growlink.trivia: INFO
+  pattern:
+    # el X-Request-Id de la peticion (lo pone RequestIdFilter en el MDC) sale en cada linea de
+    # log, asi se puede seguir una peticion completa entre servicios y entre replicas
+    level: "%5p [${spring.application.name:trivia-service},%X{requestId:-}]"
 
 growlink:
   jwt:
@@ -49,6 +102,29 @@ trivia:
     # si se cae la conexion de un jugador (cerro la pestana, se le fue la red), este es el margen
     # que se espera antes de tratarlo como que salio de la sala, por si vuelve a unirse solo
     gracia-ms: ${TRIVIA_SALIDA_GRACIA_MS:8000}
+
+observabilidad:
+  # nombre de esta replica para la etiqueta comun "instancia" de las metricas. En Azure App
+  # Service la variable WEBSITE_INSTANCE_ID ya viene puesta; si esta vacia se usa el hostname
+  instancia: ${WEBSITE_INSTANCE_ID:}
+
+auth:
+  # legacy = como venia funcionando hasta ahora: la identidad del jugador viaja dentro del
+  # mensaje de STOMP (usuarioId en el payload) y el CONNECT no pide token.
+  # oidc    = el CONNECT exige un JWT valido (firma, vencimiento, emisor y audiencia), el sub
+  #           del token queda como Principal de la sesion y los handlers ignoran el usuarioId
+  #           que venga en el mensaje.
+  # El valor por defecto es legacy a proposito, para no romper los clientes que ya existen
+  mode: ${AUTH_MODE:legacy}
+  oidc:
+    issuer-uri: ${AUTH_ISSUER_URI:}
+    audience: ${AUTH_AUDIENCE:}
+    # si se deja vacio se asume el estandar OIDC: <issuer-uri>/.well-known/jwks.json
+    jwks-uri: ${AUTH_JWKS_URI:}
+    # de que claim del token sale el rol que mira exigirAdmin (/api/metricas/dashboard). Por
+    # defecto "rol", el mismo nombre que usa usuarios-service, para que el modo oidc y el legacy
+    # decidan igual; cada proveedor lo llama distinto (roles, groups, realm_access.roles...)
+    rol-claim: ${AUTH_ROL_CLAIM:rol}
 
 usuarios:
   base-url: ${USUARIOS_BASE_URL:http://localhost:8080}
