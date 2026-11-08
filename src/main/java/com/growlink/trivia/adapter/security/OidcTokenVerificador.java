@@ -5,7 +5,6 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.JwtParser;
 
-import java.util.Collection;
 import java.util.Date;
 import java.util.Set;
 
@@ -28,7 +27,9 @@ import java.util.Set;
 //   aud       sin aud serviria el access token que el MISMO emisor le dio al usuario para
 //             cualquier otra aplicacion. Se acepta una lista porque Entra pone "api://<client-id>"
 //             o el "<client-id>" pelado segun como quede configurada la app
-//   sub       la identidad del usuario, y de ningun otro lado
+//   sub       tiene que venir, pero YA NO se exige que sea un numero: el sub de Entra es un texto
+//             opaco. Quien traduce el token a un usuarioId numerico y un rol es
+//             ResolvedorDeIdentidad (del token mismo, o preguntandole a usuarios-service)
 //
 // Es aparte de TokenService a proposito: TokenService sabe validar los tokens HS256 que emite
 // usuarios-service con un secreto compartido (el modo legacy), y esta clase los RS256 de un
@@ -41,31 +42,31 @@ public class OidcTokenVerificador {
     private final JwtParser parser;
     private final EmisorPermitido emisor;
     private final Set<String> audiencias;
-    private final String rolClaim;
+    private final ResolvedorDeIdentidad resolvedor;
 
-    // lo mismo que TokenService.Sesion, pero resuelto desde el token del proveedor
-    public record Identidad(Long usuarioId, String rol) {
-    }
-
-    public OidcTokenVerificador(EmisorPermitido emisor, Set<String> audiencias, String rolClaim,
-                                JwksKeyLocator keyLocator) {
+    public OidcTokenVerificador(EmisorPermitido emisor, Set<String> audiencias,
+                                ResolvedorDeIdentidad resolvedor, JwksKeyLocator keyLocator) {
         // parser SIN .unsecured(): asi jjwt rechaza por su cuenta los JWT con alg=none, que es el
         // otro ataque clasico (quitarle la firma al token y que el verificador lo acepte igual)
-        this(emisor, audiencias, rolClaim, Jwts.parser().keyLocator(keyLocator).build());
+        this(emisor, audiencias, resolvedor, Jwts.parser().keyLocator(keyLocator).build());
     }
 
     // para las pruebas, que le pasan un parser ya armado con la llave publica del par RSA que
     // generan ellas mismas, sin tener que levantar un JWKS
-    OidcTokenVerificador(EmisorPermitido emisor, Set<String> audiencias, String rolClaim, JwtParser parser) {
+    OidcTokenVerificador(EmisorPermitido emisor, Set<String> audiencias, ResolvedorDeIdentidad resolvedor,
+                         JwtParser parser) {
         if (emisor == null) {
             throw new IllegalStateException("hay que decir que emisores se aceptan");
         }
         if (audiencias == null || audiencias.isEmpty()) {
             throw new IllegalStateException("hay que decir que audiencias se aceptan");
         }
+        if (resolvedor == null) {
+            throw new IllegalStateException("hay que decir de donde sale la identidad");
+        }
         this.emisor = emisor;
         this.audiencias = Set.copyOf(audiencias);
-        this.rolClaim = (rolClaim == null || rolClaim.isBlank()) ? ROL_CLAIM_POR_DEFECTO : rolClaim.trim();
+        this.resolvedor = resolvedor;
         this.parser = parser;
     }
 
@@ -84,11 +85,14 @@ public class OidcTokenVerificador {
         if (!authorization.startsWith(PREFIX)) {
             throw new TokenInvalidoException("el token no viene como \"Bearer <jwt>\"");
         }
-        Claims claims = leer(authorization.substring(PREFIX.length()).trim());
+        String jwt = authorization.substring(PREFIX.length()).trim();
+        Claims claims = leer(jwt);
         exigirVencimiento(claims);
         emisor.exigir(claims);
         exigirAudiencia(claims);
-        return new Identidad(usuarioIdDeSub(claims), rolDe(claims));
+        exigirSub(claims);
+        // el token ya esta verificado; de aqui en adelante solo falta saber a quien pertenece
+        return resolvedor.resolver(jwt, claims);
     }
 
     // jjwt ya rechaza por su cuenta el alg=none, la firma que no cuadra y el token vencido; los
@@ -126,43 +130,14 @@ public class OidcTokenVerificador {
         }
     }
 
-    // En este sistema el sub es el id numerico del usuario (el mismo que emite usuarios-service),
-    // asi que un sub con otra forma significa que el token viene de un emisor que no comparte el
-    // mismo padron de usuarios: mejor rechazarlo en la puerta que dejarlo entrar y reventar despues
-    private Long usuarioIdDeSub(Claims claims) {
+    // El sub tiene que venir siempre: es lo que identifica a la persona, y sin el no hay nada
+    // que resolver. Lo que YA NO se exige aqui es que sea un numero: el sub de Entra es un texto
+    // opaco, y traducirlo a un usuarioId es trabajo de ResolvedorDeIdentidad. El modo claims
+    // sigue exigiendo que sea numerico, porque ahi el sub ES el id (ver IdentidadDesdeClaims)
+    private void exigirSub(Claims claims) {
         String sub = claims.getSubject();
         if (sub == null || sub.isBlank()) {
             throw new TokenInvalidoException("el token no trae sub, no se sabe que usuario es");
         }
-        try {
-            return Long.valueOf(sub.trim());
-        } catch (NumberFormatException e) {
-            throw new TokenInvalidoException("el sub del token (" + sub + ") no es un id de usuario", e);
-        }
-    }
-
-    // El rol es lo que mira TokenService.exigirAdmin para /api/metricas/dashboard. El nombre del
-    // claim se configura (auth.oidc.rol-claim) porque cada proveedor lo llama distinto; por
-    // defecto es "rol", el mismo que ya usa usuarios-service, para que el modo oidc y el legacy
-    // decidan igual. Se aceptan las dos formas con que los proveedores lo publican: un texto
-    // suelto o una lista de roles.
-    //
-    // Si el claim no viene, el rol queda null y exigirAdmin responde 403: un token sin rol no es
-    // un token invalido (los endpoints que solo piden sesion siguen funcionando), simplemente no
-    // alcanza para el dashboard de admin.
-    private String rolDe(Claims claims) {
-        Object valor = claims.get(rolClaim);
-        if (valor == null) {
-            return null;
-        }
-        if (valor instanceof Collection<?> roles) {
-            return roles.stream()
-                    .filter(java.util.Objects::nonNull)
-                    .map(Object::toString)
-                    .filter(TokenService.ROL_ADMIN::equals)
-                    .findFirst()
-                    .orElseGet(() -> roles.isEmpty() ? null : String.valueOf(roles.iterator().next()));
-        }
-        return valor.toString();
     }
 }

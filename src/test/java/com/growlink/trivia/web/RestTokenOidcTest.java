@@ -47,6 +47,9 @@ class RestTokenOidcTest {
     @DynamicPropertySource
     static void modoOidc(DynamicPropertyRegistry registro) {
         registro.add("auth.mode", () -> "oidc");
+        // identity-source=claims conserva el comportamiento anterior (el usuarioId sale del sub),
+        // que es justo lo que estas pruebas cubren, y evita tener que levantar usuarios-service
+        registro.add("auth.identity-source", () -> "claims");
         registro.add("auth.oidc.issuer-uri", LlavesDePrueba::issuer);
         registro.add("auth.oidc.audience", () -> LlavesDePrueba.AUDIENCE);
     }

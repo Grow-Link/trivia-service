@@ -39,6 +39,9 @@ class RestMultiTenantOidcTest {
     @DynamicPropertySource
     static void modoOidcMultiTenant(DynamicPropertyRegistry registro) {
         registro.add("auth.mode", () -> "oidc");
+        // identity-source=claims conserva el comportamiento anterior (el usuarioId sale del sub),
+        // que es justo lo que estas pruebas cubren, y evita tener que levantar usuarios-service
+        registro.add("auth.identity-source", () -> "claims");
         registro.add("auth.multi-tenant", () -> "true");
         // las dos formas con que Entra publica el aud, separadas por comas
         registro.add("auth.oidc.audience", () -> "api://" + CLIENT_ID + "," + CLIENT_ID);

@@ -2,6 +2,7 @@ package com.growlink.trivia.security;
 
 import com.growlink.trivia.LlavesDePrueba;
 import com.growlink.trivia.adapter.security.EmisorPermitido;
+import com.growlink.trivia.adapter.security.IdentidadDesdeClaims;
 import com.growlink.trivia.adapter.security.JwksKeyLocator;
 import com.growlink.trivia.adapter.security.OidcTokenVerificador;
 import com.growlink.trivia.adapter.security.TokenInvalidoException;
@@ -31,7 +32,7 @@ class EmisorMultiTenantTest {
     // resultado de una prueba dependeria del orden en que corrieron las demas
     private OidcTokenVerificador multiTenant(Set<String> tenantsPermitidos) {
         return new OidcTokenVerificador(EmisorPermitido.entraMultiTenant(tenantsPermitidos),
-                Set.of(LlavesDePrueba.AUDIENCE), "rol", new JwksKeyLocator(LlavesDePrueba.jwksUri()));
+                Set.of(LlavesDePrueba.AUDIENCE), new IdentidadDesdeClaims("rol"), new JwksKeyLocator(LlavesDePrueba.jwksUri()));
     }
 
     private OidcTokenVerificador multiTenant() {
@@ -206,7 +207,7 @@ class EmisorMultiTenantTest {
         OidcTokenVerificador verificador = new OidcTokenVerificador(
                 EmisorPermitido.entraMultiTenant(Set.of()),
                 Set.of("api://" + clientId, clientId),
-                "rol", new JwksKeyLocator(LlavesDePrueba.jwksUri()));
+                new IdentidadDesdeClaims("rol"), new JwksKeyLocator(LlavesDePrueba.jwksUri()));
 
         assertThat(verificador.usuarioIdDe("Bearer "
                 + LlavesDePrueba.tokenDeEntraConAudiencia(88, TENANT_A, "api://" + clientId))).isEqualTo(88L);
@@ -219,7 +220,7 @@ class EmisorMultiTenantTest {
         OidcTokenVerificador verificador = new OidcTokenVerificador(
                 EmisorPermitido.entraMultiTenant(Set.of()),
                 Set.of("api://uno", "api://otro"),
-                "rol", new JwksKeyLocator(LlavesDePrueba.jwksUri()));
+                new IdentidadDesdeClaims("rol"), new JwksKeyLocator(LlavesDePrueba.jwksUri()));
 
         assertThatThrownBy(() -> verificador.usuarioIdDe("Bearer "
                 + LlavesDePrueba.tokenDeEntraConAudiencia(88, TENANT_A, "api://tercero")))
@@ -232,7 +233,7 @@ class EmisorMultiTenantTest {
     @Test
     void noSePuedeArmarElVerificadorSinAudiencias() {
         assertThatThrownBy(() -> new OidcTokenVerificador(EmisorPermitido.entraMultiTenant(Set.of()),
-                Set.of(), "rol", new JwksKeyLocator(LlavesDePrueba.jwksUri())))
+                Set.of(), new IdentidadDesdeClaims("rol"), new JwksKeyLocator(LlavesDePrueba.jwksUri())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("audiencias");
     }
@@ -245,7 +246,7 @@ class EmisorMultiTenantTest {
     void enModoSingleTenantElEmisorFijoSigueSiendoLoQueManda() {
         OidcTokenVerificador singleTenant = new OidcTokenVerificador(
                 EmisorPermitido.fijo(LlavesDePrueba.issuer()),
-                Set.of(LlavesDePrueba.AUDIENCE), "rol", new JwksKeyLocator(LlavesDePrueba.jwksUri()));
+                Set.of(LlavesDePrueba.AUDIENCE), new IdentidadDesdeClaims("rol"), new JwksKeyLocator(LlavesDePrueba.jwksUri()));
 
         // el token del emisor configurado entra, y no le hace falta traer tid
         assertThat(singleTenant.usuarioIdDe("Bearer " + LlavesDePrueba.tokenValido(99))).isEqualTo(99L);

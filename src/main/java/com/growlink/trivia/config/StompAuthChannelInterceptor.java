@@ -1,5 +1,6 @@
 package com.growlink.trivia.config;
 
+import com.growlink.trivia.adapter.security.IdentidadNoDisponibleException;
 import com.growlink.trivia.adapter.security.JugadorPrincipal;
 import com.growlink.trivia.adapter.security.OidcTokenVerificador;
 import com.growlink.trivia.adapter.security.TokenInvalidoException;
@@ -70,6 +71,14 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             // la excepcion hace que Spring le mande un frame ERROR al cliente y cierre el
             // WebSocket; el motivo exacto se queda en el log del servidor y no viaja al cliente
             throw new MessageDeliveryException(message, "CONNECT rechazado: token invalido o ausente");
+        } catch (IdentidadNoDisponibleException e) {
+            // el token estaba bien, lo que fallo fue usuarios-service. La conexion se rechaza
+            // igual: sin identidad no se puede saber quien juega, y caer al sub del token seria
+            // deshacer el proposito de resolverla contra usuarios-service. El cliente reintenta
+            log.error("CONNECT rechazado en la sesion {}, no se pudo resolver la identidad: {}",
+                    accessor.getSessionId(), e.getMessage());
+            throw new MessageDeliveryException(message,
+                    "CONNECT rechazado: no se pudo verificar la sesion, intente de nuevo");
         } finally {
             if (enElMdc) {
                 MDC.remove(RequestIdFilter.MDC_KEY);

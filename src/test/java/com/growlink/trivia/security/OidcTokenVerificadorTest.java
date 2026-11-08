@@ -2,6 +2,8 @@ package com.growlink.trivia.security;
 
 import com.growlink.trivia.LlavesDePrueba;
 import com.growlink.trivia.adapter.security.EmisorPermitido;
+import com.growlink.trivia.adapter.security.Identidad;
+import com.growlink.trivia.adapter.security.IdentidadDesdeClaims;
 import com.growlink.trivia.adapter.security.JwksKeyLocator;
 import com.growlink.trivia.adapter.security.OidcTokenVerificador;
 import com.growlink.trivia.adapter.security.TokenInvalidoException;
@@ -25,7 +27,7 @@ class OidcTokenVerificadorTest {
     // corrieron las demas
     private OidcTokenVerificador verificador() {
         return new OidcTokenVerificador(EmisorPermitido.fijo(LlavesDePrueba.issuer()),
-                Set.of(LlavesDePrueba.AUDIENCE), "rol", new JwksKeyLocator(LlavesDePrueba.jwksUri()));
+                Set.of(LlavesDePrueba.AUDIENCE), new IdentidadDesdeClaims("rol"), new JwksKeyLocator(LlavesDePrueba.jwksUri()));
     }
 
     @Test
@@ -115,7 +117,7 @@ class OidcTokenVerificadorTest {
     @Test
     void siElJwksNoRespondeElTokenNoPasa() {
         OidcTokenVerificador sinEmisor = new OidcTokenVerificador(EmisorPermitido.fijo(LlavesDePrueba.issuer()),
-                Set.of(LlavesDePrueba.AUDIENCE), "rol",
+                Set.of(LlavesDePrueba.AUDIENCE), new IdentidadDesdeClaims("rol"),
                 new JwksKeyLocator("http://127.0.0.1:1/.well-known/jwks.json"));
 
         assertThatThrownBy(() -> sinEmisor.usuarioIdDe("Bearer " + LlavesDePrueba.tokenValido(42)))
@@ -180,7 +182,7 @@ class OidcTokenVerificadorTest {
     @Test
     void elRolSaleDelClaimDelToken() {
         assertThat(verificador().identidadDe("Bearer " + LlavesDePrueba.tokenValidoConRol(7, "ADMIN")))
-                .isEqualTo(new OidcTokenVerificador.Identidad(7L, "ADMIN"));
+                .isEqualTo(new Identidad(7L, "ADMIN"));
     }
 
     // varios proveedores publican el rol como lista en vez de como texto suelto
@@ -197,6 +199,6 @@ class OidcTokenVerificadorTest {
     @Test
     void unTokenSinRolSigueSiendoValidoPeroSinRol() {
         assertThat(verificador().identidadDe("Bearer " + LlavesDePrueba.tokenValido(7)))
-                .isEqualTo(new OidcTokenVerificador.Identidad(7L, null));
+                .isEqualTo(new Identidad(7L, null));
     }
 }

@@ -104,14 +104,35 @@ public final class LlavesDePrueba {
         return tokenDeEntra(usuarioId, iss, tenant, AUDIENCE);
     }
 
+    // El sub TAL COMO lo emite Entra de verdad: un texto opaco, no un id. Es el token con el que
+    // el servicio tiene que ir a preguntarle a usuarios-service quien es esta persona; si se
+    // intentara leer el sub como numero, se rechazaria
+    public static String tokenDeEntraConSub(String sub, String tenant) {
+        return tokenDeEntraCrudo(sub, issuerDeEntra(tenant), tenant, AUDIENCE, enUnRato());
+    }
+
+    public static String tokenDeEntraConSubYAudiencia(String sub, String tenant, String aud) {
+        return tokenDeEntraCrudo(sub, issuerDeEntra(tenant), tenant, aud, enUnRato());
+    }
+
+    // para probar que el cache de identidades nunca vive mas alla del exp del token
+    public static String tokenDeEntraQueVenceEn(long segundos, String sub, String tenant) {
+        return tokenDeEntraCrudo(sub, issuerDeEntra(tenant), tenant, AUDIENCE,
+                Instant.now().plusSeconds(segundos));
+    }
+
     private static String tokenDeEntra(long usuarioId, String iss, String tid, String aud) {
+        return tokenDeEntraCrudo(String.valueOf(usuarioId), iss, tid, aud, enUnRato());
+    }
+
+    private static String tokenDeEntraCrudo(String sub, String iss, String tid, String aud, Instant vence) {
         var builder = Jwts.builder()
                 .header().keyId(KID).and()
                 .issuer(iss)
                 .audience().add(aud).and()
-                .subject(String.valueOf(usuarioId))
+                .subject(sub)
                 .issuedAt(Date.from(Instant.now().minusSeconds(5)))
-                .expiration(Date.from(enUnRato()));
+                .expiration(Date.from(vence));
         if (tid != null) {
             builder.claim("tid", tid);
         }

@@ -1,8 +1,12 @@
 package com.growlink.trivia.config;
 
+import com.growlink.trivia.adapter.security.CacheDeIdentidades;
 import com.growlink.trivia.adapter.security.EmisorPermitido;
+import com.growlink.trivia.adapter.security.IdentidadDesdeClaims;
+import com.growlink.trivia.adapter.security.IdentidadDesdeUsuariosService;
 import com.growlink.trivia.adapter.security.JwksKeyLocator;
 import com.growlink.trivia.adapter.security.OidcTokenVerificador;
+import com.growlink.trivia.adapter.security.ResolvedorDeIdentidad;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,6 +14,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import org.springframework.web.client.RestClient;
+
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -35,6 +42,10 @@ public class AuthModeConfig {
 
     public static final String MODO_LEGACY = "legacy";
     public static final String MODO_OIDC = "oidc";
+
+    // de donde sale el usuarioId numerico y el rol, ver ResolvedorDeIdentidad
+    public static final String IDENTIDAD_USUARIOS_SERVICE = "usuarios-service";
+    public static final String IDENTIDAD_CLAIMS = "claims";
 
     private static final Logger log = LoggerFactory.getLogger(AuthModeConfig.class);
 
@@ -71,7 +82,8 @@ public class AuthModeConfig {
             @Value("${auth.oidc.audience:}") String audience,
             @Value("${auth.oidc.allowed-tenants:}") String tenantsPermitidos,
             @Value("${auth.oidc.jwks-uri:}") String jwksUri,
-            @Value("${auth.oidc.rol-claim:rol}") String rolClaim) {
+            @Value("${auth.oidc.rol-claim:rol}") String rolClaim,
+            ResolvedorDeIdentidad resolvedor) {
         // la audiencia no es opcional en ningun modo: sin ella sirve el token que el mismo
         // emisor le dio al usuario para cualquier otra aplicacion
         exigir(audience, "auth.oidc.audience (AUTH_AUDIENCE)");
@@ -95,12 +107,48 @@ public class AuthModeConfig {
         }
 
         String uriDelJwks = (jwksUri == null || jwksUri.isBlank()) ? jwksPorDefecto : jwksUri.trim();
-        log.info("modo oidc: multi-tenant={} emisor={} audiencias={} jwks={} claim del rol={}",
+        log.info("modo oidc: multi-tenant={} emisor={} audiencias={} jwks={}",
                 multiTenant,
                 multiTenant ? "cualquier tenant de Entra v2" + (emisor.tenantsPermitidos().isEmpty()
                         ? "" : " dentro de " + emisor.tenantsPermitidos()) : issuerUri,
-                audiencias, uriDelJwks, rolClaim);
-        return new OidcTokenVerificador(emisor, audiencias, rolClaim, new JwksKeyLocator(uriDelJwks));
+                audiencias, uriDelJwks);
+        return new OidcTokenVerificador(emisor, audiencias, resolvedor, new JwksKeyLocator(uriDelJwks));
+    }
+
+    // De donde sale la identidad del que llama, una vez el token ya esta verificado.
+    //
+    // Por defecto usuarios-service, porque es el unico modo que funciona con tokens reales de
+    // Entra: su sub es un texto opaco y el usuarioId numerico que este servicio guarda en sus
+    // tablas vive alla. El modo claims se conserva para desarrollo y pruebas sin usuarios-service
+    // arriba, y solo sirve cuando el emisor comparte el padron de usuarios de GrowLink.
+    //
+    // Un valor que no sea ninguno de los dos tumba el arranque: caer callado a claims seria
+    // quedar aceptando el sub del token creyendo que se esta preguntando a usuarios-service.
+    @Bean
+    @ConditionalOnProperty(name = "auth.mode", havingValue = MODO_OIDC)
+    public ResolvedorDeIdentidad resolvedorDeIdentidad(
+            RestClient.Builder builder,
+            @Value("${auth.identity-source:" + IDENTIDAD_USUARIOS_SERVICE + "}") String fuente,
+            @Value("${auth.usuarios-service-url:}") String usuariosServiceUrl,
+            @Value("${auth.identity-cache-seconds:60}") long cacheSegundos,
+            @Value("${auth.oidc.rol-claim:rol}") String rolClaim) {
+        if (IDENTIDAD_CLAIMS.equals(fuente)) {
+            log.warn("auth.identity-source=claims: la identidad sale del token y NO de usuarios-service."
+                    + " Esto solo funciona si el sub del token es el usuarioId numerico, que no es el"
+                    + " caso de los tokens de Microsoft Entra");
+            return new IdentidadDesdeClaims(rolClaim);
+        }
+        if (!IDENTIDAD_USUARIOS_SERVICE.equals(fuente)) {
+            throw new IllegalStateException("auth.identity-source debe ser \"" + IDENTIDAD_USUARIOS_SERVICE
+                    + "\" o \"" + IDENTIDAD_CLAIMS + "\", llego \"" + fuente + "\"");
+        }
+        exigir(usuariosServiceUrl, "auth.usuarios-service-url (USUARIOS_SERVICE_URL)");
+
+        log.info("la identidad se resuelve contra {} (cache de {} s, maximo {} entradas)",
+                usuariosServiceUrl, cacheSegundos, CacheDeIdentidades.TAMANO_MAXIMO_POR_DEFECTO);
+        return new IdentidadDesdeUsuariosService(builder, usuariosServiceUrl.trim(),
+                new CacheDeIdentidades(Duration.ofSeconds(cacheSegundos),
+                        CacheDeIdentidades.TAMANO_MAXIMO_POR_DEFECTO));
     }
 
     // "a, b , c" -> [a, b, c], sin vacios. Lo usan la audiencia y la lista de tenants

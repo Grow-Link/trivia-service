@@ -128,6 +128,36 @@ auth:
   #         del iss (ver EmisorPermitido). Con true, AUTH_ISSUER_URI se ignora.
   multi-tenant: ${AUTH_MULTI_TENANT:false}
 
+  # De donde sale el usuarioId NUMERICO y el rol, una vez el token ya esta verificado.
+  #
+  # usuarios-service (por defecto) = se le pregunta a usuarios-service con
+  #     GET /api/usuarios/me, reenviando el mismo token. Es el unico modo que funciona con tokens
+  #     reales de Microsoft Entra: su sub es un texto opaco ("AAAAAAAA...IkzqFVrSaSa..."), no un
+  #     id, y el usuarioId que este servicio guarda en sus tablas (SalaParticipante, RespuestaSala,
+  #     PartidaPuesto) vive alla. El rol del dashboard de admin tambien sale de esa consulta.
+  # claims = el usuarioId sale del sub y el rol de un claim. Es el comportamiento anterior y se
+  #     conserva para desarrollo y pruebas sin usuarios-service arriba. Solo sirve si el emisor
+  #     comparte el padron de usuarios de GrowLink (el sub tiene que ser un numero).
+  #
+  # Un valor que no sea ninguno de los dos tumba el arranque: caer callado a claims seria quedar
+  # aceptando el sub del token creyendo que se esta preguntando a usuarios-service.
+  identity-source: ${AUTH_IDENTITY_SOURCE:usuarios-service}
+
+  # Donde esta usuarios-service para resolver la identidad. OBLIGATORIA con
+  # identity-source=usuarios-service: si falta, el arranque falla.
+  #
+  # Ojo: tiene que apuntar al mismo sitio que USUARIOS_BASE_URL (la que usa UsuariosRestClient
+  # para sumar las trivias ganadas). Son dos variables para el mismo servicio porque la
+  # configuracion de despliegue del equipo las nombra asi; si algun dia se unifican, esta es la
+  # que sobra.
+  usuarios-service-url: ${USUARIOS_SERVICE_URL:}
+
+  # Cuanto vale una identidad ya resuelta antes de volver a preguntar. Esta consulta esta en el
+  # camino de CADA peticion autenticada, asi que sin cache usuarios-service se vuelve el cuello de
+  # botella de todo. La entrada nunca vive mas alla del exp del token, pase lo que pase con este
+  # valor, y la clave es el SHA-256 del token y no el token (ver CacheDeIdentidades).
+  identity-cache-seconds: ${AUTH_IDENTITY_CACHE_SECONDS:60}
+
   oidc:
     # solo se usa con multi-tenant=false
     issuer-uri: ${AUTH_ISSUER_URI:}
@@ -148,9 +178,10 @@ auth:
     #   multi-tenant=true  -> https://login.microsoftonline.com/common/discovery/v2.0/keys
     #                         (el "common" de Entra publica las llaves de todos los directorios)
     jwks-uri: ${AUTH_JWKS_URI:}
-    # de que claim del token sale el rol que mira exigirAdmin (/api/metricas/dashboard). Por
-    # defecto "rol", el mismo nombre que usa usuarios-service, para que el modo oidc y el legacy
-    # decidan igual; cada proveedor lo llama distinto (roles, groups, realm_access.roles...)
+    # Solo con identity-source=claims: de que claim del token sale el rol. Por defecto "rol", el
+    # mismo nombre que usa usuarios-service; cada proveedor lo llama distinto (roles, groups,
+    # realm_access.roles...). Con identity-source=usuarios-service el rol sale de la consulta a
+    # /api/usuarios/me y este valor no se usa.
     rol-claim: ${AUTH_ROL_CLAIM:rol}
 
 usuarios:

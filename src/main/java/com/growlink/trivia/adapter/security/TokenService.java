@@ -2,6 +2,7 @@ package com.growlink.trivia.adapter.security;
 
 import com.growlink.trivia.application.NoAutenticadoException;
 import com.growlink.trivia.application.NoAutorizadoException;
+import com.growlink.trivia.application.UsuariosServiceNoDisponibleException;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -64,11 +65,17 @@ public class TokenService {
     // linea, un token mal configurado en un ambiente es imposible de diagnosticar
     private Sesion sesionOidc(String authorization, OidcTokenVerificador verificador) {
         try {
-            OidcTokenVerificador.Identidad identidad = verificador.identidadDe(authorization);
+            Identidad identidad = verificador.identidadDe(authorization);
             return new Sesion(identidad.usuarioId(), identidad.rol());
         } catch (TokenInvalidoException e) {
             log.warn("peticion REST rechazada con 401: {}", e.getMessage());
             throw new NoAutenticadoException();
+        } catch (IdentidadNoDisponibleException e) {
+            // el token esta bien, lo que fallo es usuarios-service: 503 y no 401. Mandar un 401
+            // aqui haria que el frontend pida un login nuevo por una caida de un servicio de
+            // atras, que no arregla nada, y de paso esconderia la caida
+            log.error("peticion REST rechazada con 503, no se pudo resolver la identidad: {}", e.getMessage());
+            throw new UsuariosServiceNoDisponibleException();
         }
     }
 
