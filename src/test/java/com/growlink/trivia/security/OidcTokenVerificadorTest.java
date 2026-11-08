@@ -1,12 +1,14 @@
 package com.growlink.trivia.security;
 
 import com.growlink.trivia.LlavesDePrueba;
+import com.growlink.trivia.adapter.security.EmisorPermitido;
 import com.growlink.trivia.adapter.security.JwksKeyLocator;
 import com.growlink.trivia.adapter.security.OidcTokenVerificador;
 import com.growlink.trivia.adapter.security.TokenInvalidoException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -22,8 +24,8 @@ class OidcTokenVerificadorTest {
     // recarga, y con un cache compartido el resultado de una prueba dependeria de en que orden
     // corrieron las demas
     private OidcTokenVerificador verificador() {
-        return new OidcTokenVerificador(LlavesDePrueba.issuer(), LlavesDePrueba.AUDIENCE, "rol",
-                new JwksKeyLocator(LlavesDePrueba.jwksUri()));
+        return new OidcTokenVerificador(EmisorPermitido.fijo(LlavesDePrueba.issuer()),
+                Set.of(LlavesDePrueba.AUDIENCE), "rol", new JwksKeyLocator(LlavesDePrueba.jwksUri()));
     }
 
     @Test
@@ -112,8 +114,9 @@ class OidcTokenVerificadorTest {
 
     @Test
     void siElJwksNoRespondeElTokenNoPasa() {
-        OidcTokenVerificador sinEmisor = new OidcTokenVerificador(LlavesDePrueba.issuer(), LlavesDePrueba.AUDIENCE,
-                "rol", new JwksKeyLocator("http://127.0.0.1:1/.well-known/jwks.json"));
+        OidcTokenVerificador sinEmisor = new OidcTokenVerificador(EmisorPermitido.fijo(LlavesDePrueba.issuer()),
+                Set.of(LlavesDePrueba.AUDIENCE), "rol",
+                new JwksKeyLocator("http://127.0.0.1:1/.well-known/jwks.json"));
 
         assertThatThrownBy(() -> sinEmisor.usuarioIdDe("Bearer " + LlavesDePrueba.tokenValido(42)))
                 .isInstanceOf(TokenInvalidoException.class);

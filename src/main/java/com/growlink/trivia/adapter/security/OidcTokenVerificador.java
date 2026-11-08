@@ -21,9 +21,13 @@ import java.util.Set;
 //   kid       el token tiene que decir con cual de las llaves del emisor se firmo (JwksKeyLocator)
 //   exp       y tiene que traerlo: un token sin exp no vence NUNCA, y uno robado serviria para siempre
 //   iss       la firma solo dice "esto lo firmo alguien con esa llave privada", no "lo firmo quien
-//             yo espero": sin iss entraria un token valido de otro tenant o de otro proveedor
+//             yo espero": sin iss entraria un token valido de otro proveedor. Quien decide si el
+//             emisor sirve es EmisorPermitido, porque con la app registrada como multi-tenant en
+//             Entra el iss trae el tenant de quien inicia sesion y no se puede comparar contra
+//             uno fijo (ahi entra tambien el tid)
 //   aud       sin aud serviria el access token que el MISMO emisor le dio al usuario para
-//             cualquier otra aplicacion
+//             cualquier otra aplicacion. Se acepta una lista porque Entra pone "api://<client-id>"
+//             o el "<client-id>" pelado segun como quede configurada la app
 //   sub       la identidad del usuario, y de ningun otro lado
 //
 // Es aparte de TokenService a proposito: TokenService sabe validar los tokens HS256 que emite
@@ -35,25 +39,32 @@ public class OidcTokenVerificador {
     public static final String ROL_CLAIM_POR_DEFECTO = "rol";
 
     private final JwtParser parser;
-    private final String issuer;
-    private final String audience;
+    private final EmisorPermitido emisor;
+    private final Set<String> audiencias;
     private final String rolClaim;
 
     // lo mismo que TokenService.Sesion, pero resuelto desde el token del proveedor
     public record Identidad(Long usuarioId, String rol) {
     }
 
-    public OidcTokenVerificador(String issuer, String audience, String rolClaim, JwksKeyLocator keyLocator) {
+    public OidcTokenVerificador(EmisorPermitido emisor, Set<String> audiencias, String rolClaim,
+                                JwksKeyLocator keyLocator) {
         // parser SIN .unsecured(): asi jjwt rechaza por su cuenta los JWT con alg=none, que es el
         // otro ataque clasico (quitarle la firma al token y que el verificador lo acepte igual)
-        this(issuer, audience, rolClaim, Jwts.parser().keyLocator(keyLocator).build());
+        this(emisor, audiencias, rolClaim, Jwts.parser().keyLocator(keyLocator).build());
     }
 
     // para las pruebas, que le pasan un parser ya armado con la llave publica del par RSA que
     // generan ellas mismas, sin tener que levantar un JWKS
-    OidcTokenVerificador(String issuer, String audience, String rolClaim, JwtParser parser) {
-        this.issuer = issuer;
-        this.audience = audience;
+    OidcTokenVerificador(EmisorPermitido emisor, Set<String> audiencias, String rolClaim, JwtParser parser) {
+        if (emisor == null) {
+            throw new IllegalStateException("hay que decir que emisores se aceptan");
+        }
+        if (audiencias == null || audiencias.isEmpty()) {
+            throw new IllegalStateException("hay que decir que audiencias se aceptan");
+        }
+        this.emisor = emisor;
+        this.audiencias = Set.copyOf(audiencias);
         this.rolClaim = (rolClaim == null || rolClaim.isBlank()) ? ROL_CLAIM_POR_DEFECTO : rolClaim.trim();
         this.parser = parser;
     }
@@ -75,7 +86,7 @@ public class OidcTokenVerificador {
         }
         Claims claims = leer(authorization.substring(PREFIX.length()).trim());
         exigirVencimiento(claims);
-        exigirEmisor(claims);
+        emisor.exigir(claims);
         exigirAudiencia(claims);
         return new Identidad(usuarioIdDeSub(claims), rolDe(claims));
     }
@@ -103,22 +114,15 @@ public class OidcTokenVerificador {
         }
     }
 
-    private void exigirEmisor(Claims claims) {
-        if (issuer == null || issuer.isBlank()) {
-            return; // sin emisor configurado no hay nada que comparar (ver AuthModeConfig, que lo exige al arrancar)
-        }
-        if (!issuer.equals(claims.getIssuer())) {
-            throw new TokenInvalidoException("el emisor del token (" + claims.getIssuer() + ") no es " + issuer);
-        }
-    }
-
+    // Basta con que el aud del token coincida con UNA de las audiencias configuradas: Entra
+    // publica "api://<client-id>" o el "<client-id>" pelado segun como quede registrada la app, y
+    // tener las dos puestas evita que un cambio en el portal rompa el login. Lo que no se hace es
+    // dejar la lista vacia: eso si seria aceptar tokens emitidos para cualquier otra aplicacion
     private void exigirAudiencia(Claims claims) {
-        if (audience == null || audience.isBlank()) {
-            return;
-        }
-        Set<String> audiencias = claims.getAudience();
-        if (audiencias == null || !audiencias.contains(audience)) {
-            throw new TokenInvalidoException("el token no tiene la audiencia " + audience + ", trae " + audiencias);
+        Set<String> delToken = claims.getAudience();
+        if (delToken == null || delToken.stream().noneMatch(audiencias::contains)) {
+            throw new TokenInvalidoException(
+                    "el token no tiene ninguna de las audiencias " + audiencias + ", trae " + delToken);
         }
     }
 

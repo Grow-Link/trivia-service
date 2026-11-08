@@ -111,15 +111,42 @@ observabilidad:
 auth:
   # legacy = como venia funcionando hasta ahora: la identidad del jugador viaja dentro del
   # mensaje de STOMP (usuarioId en el payload) y el CONNECT no pide token.
-  # oidc    = el CONNECT exige un JWT valido (firma, vencimiento, emisor y audiencia), el sub
-  #           del token queda como Principal de la sesion y los handlers ignoran el usuarioId
-  #           que venga en el mensaje.
+  # oidc    = el CONNECT de STOMP y los endpoints REST exigen un JWT valido del proveedor (firma
+  #           RS256 contra su JWKS, kid, exp, emisor y audiencia). En el WebSocket el sub del
+  #           token queda como Principal de la sesion y los handlers ignoran el usuarioId que
+  #           venga en el mensaje; en el REST pasa por TokenService y un token que no cuadra es 401.
   # El valor por defecto es legacy a proposito, para no romper los clientes que ya existen
   mode: ${AUTH_MODE:legacy}
+
+  # false = un solo emisor, el de AUTH_ISSUER_URI, comparado tal cual. Es el comportamiento de
+  #         siempre y el valor por defecto.
+  # true  = la app esta registrada en Entra ID como multi-tenant (cuentas de cualquier directorio
+  #         organizacional y cuentas personales de Microsoft). Ahi el iss del token trae el tenant
+  #         de QUIEN inicia sesion, no uno fijo, asi que compararlo contra AUTH_ISSUER_URI
+  #         rechazaria a casi todo el mundo. En su lugar se exige que el iss tenga exactamente la
+  #         forma del emisor v2 de Entra y que el claim tid cuadre con el GUID que viene dentro
+  #         del iss (ver EmisorPermitido). Con true, AUTH_ISSUER_URI se ignora.
+  multi-tenant: ${AUTH_MULTI_TENANT:false}
+
   oidc:
+    # solo se usa con multi-tenant=false
     issuer-uri: ${AUTH_ISSUER_URI:}
+
+    # Lista separada por comas: el token pasa si su aud coincide con ALGUNA. Entra pone
+    # "api://<client-id>" o el "<client-id>" pelado segun como quede registrada la app, y tener
+    # las dos puestas evita que un cambio en el portal rompa el login. Vacio NO se acepta: seria
+    # aceptar tokens emitidos para cualquier otra aplicacion del mismo proveedor.
     audience: ${AUTH_AUDIENCE:}
-    # si se deja vacio se asume el estandar OIDC: <issuer-uri>/.well-known/jwks.json
+
+    # Solo con multi-tenant=true. GUIDs de tenant separados por comas: si esta vacio se acepta
+    # cualquier directorio que cumpla el patron del emisor, y si tiene valores solo esos. Un GUID
+    # mal escrito tumba el arranque, para no descubrirlo cuando alguien no pueda entrar.
+    allowed-tenants: ${AUTH_ALLOWED_TENANTS:}
+
+    # Si se deja vacio, el valor por defecto depende del modo:
+    #   multi-tenant=false -> el estandar de OIDC, <issuer-uri>/.well-known/jwks.json
+    #   multi-tenant=true  -> https://login.microsoftonline.com/common/discovery/v2.0/keys
+    #                         (el "common" de Entra publica las llaves de todos los directorios)
     jwks-uri: ${AUTH_JWKS_URI:}
     # de que claim del token sale el rol que mira exigirAdmin (/api/metricas/dashboard). Por
     # defecto "rol", el mismo nombre que usa usuarios-service, para que el modo oidc y el legacy

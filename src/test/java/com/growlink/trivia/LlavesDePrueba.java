@@ -67,6 +67,57 @@ public final class LlavesDePrueba {
         return issuer() + "/.well-known/jwks.json";
     }
 
+    // ---- tokens con forma de Entra ID, para las pruebas de multi-tenant ----
+    //
+    // Se firman con el MISMO par de llaves de arriba (nada sale a internet, el JWKS sigue siendo
+    // el local): lo que cambia es el iss y el tid, que es justo lo que valida EmisorPermitido.
+
+    public static final String TENANT_A = "11111111-2222-3333-4444-555555555555";
+    public static final String TENANT_B = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    // el tenant con el que Entra emite los tokens de las cuentas personales de Microsoft
+    public static final String TENANT_CUENTAS_PERSONALES = "9188040d-6c67-4c5b-b112-36a304b66dad";
+
+    public static String issuerDeEntra(String tenant) {
+        return "https://login.microsoftonline.com/" + tenant + "/v2.0";
+    }
+
+    // el caso normal: iss y tid del mismo directorio, que es lo que emite Entra de verdad
+    public static String tokenDeEntra(long usuarioId, String tenant) {
+        return tokenDeEntra(usuarioId, issuerDeEntra(tenant), tenant, AUDIENCE);
+    }
+
+    public static String tokenDeEntraConAudiencia(long usuarioId, String tenant, String aud) {
+        return tokenDeEntra(usuarioId, issuerDeEntra(tenant), tenant, aud);
+    }
+
+    // iss y tid que no cuadran: el token dice venir de un directorio y declarar otro
+    public static String tokenDeEntraConTidDeOtroTenant(long usuarioId, String tenantDelIss, String tid) {
+        return tokenDeEntra(usuarioId, issuerDeEntra(tenantDelIss), tid, AUDIENCE);
+    }
+
+    public static String tokenDeEntraSinTid(long usuarioId, String tenant) {
+        return tokenDeEntra(usuarioId, issuerDeEntra(tenant), null, AUDIENCE);
+    }
+
+    // para los emisores que SE PARECEN al de Microsoft pero no lo son
+    public static String tokenConEseIssuer(long usuarioId, String iss, String tenant) {
+        return tokenDeEntra(usuarioId, iss, tenant, AUDIENCE);
+    }
+
+    private static String tokenDeEntra(long usuarioId, String iss, String tid, String aud) {
+        var builder = Jwts.builder()
+                .header().keyId(KID).and()
+                .issuer(iss)
+                .audience().add(aud).and()
+                .subject(String.valueOf(usuarioId))
+                .issuedAt(Date.from(Instant.now().minusSeconds(5)))
+                .expiration(Date.from(enUnRato()));
+        if (tid != null) {
+            builder.claim("tid", tid);
+        }
+        return builder.signWith(PAR.getPrivate(), Jwts.SIG.RS256).compact();
+    }
+
     // el JWKS tal como lo publicaria cualquier proveedor de OIDC: modulo y exponente en base64url
     public static String jwksJson() {
         RSAPublicKey publica = (RSAPublicKey) PAR.getPublic();
