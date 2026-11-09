@@ -153,6 +153,153 @@ envio), "empates" resueltos por el UPDATE atomico (cuando alguien acierta
 pero otro ya habia acertado primero) y partida finalizada (con duracion y
 numero de participantes). El dashboard del admin son consultas sobre esa tabla.
 
+## Autenticacion (`auth.mode`)
+
+El servicio no monta una cadena de filtros de Spring Security: la autenticacion
+se exige endpoint por endpoint (`TokenService`) y en el CONNECT del WebSocket
+(`StompAuthChannelInterceptor`). Cual token se acepta lo decide `AUTH_MODE`:
+
+| `AUTH_MODE` | Que valida |
+|---|---|
+| `legacy` (por defecto) | El JWT HS256 que emite usuarios-service, con el `GROWLINK_JWT_SECRET` compartido. El CONNECT del WebSocket no pide token y la identidad del jugador viaja en el payload del mensaje. Es el comportamiento historico. |
+| `oidc` | El JWT del proveedor: firma **RS256** contra su JWKS, `kid` y `exp` obligatorios, `iss`, `aud` y `sub`. El CONNECT exige token y el `sub` queda como `Principal` de la sesion, asi que los handlers **ignoran** cualquier `usuarioId` que venga en el mensaje. En REST, un token que no cuadra es 401 y el motivo queda en el log con el `X-Request-Id`. |
+
+`auth.mode` se valida al arrancar: un valor que no sea `legacy` ni `oidc` tumba
+el arranque, en vez de caer callado a `legacy` y quedar desplegado sin la
+autenticacion que uno creia haber puesto.
+
+### Un emisor fijo o multi-tenant
+
+`AUTH_MULTI_TENANT` decide como se valida el `iss`:
+
+- **`false` (por defecto)**: un solo emisor, el de `AUTH_ISSUER_URI`, comparado
+  tal cual. Con esto el comportamiento no cambia en nada.
+- **`true`**: la app esta registrada en Entra ID para **cuentas de cualquier
+  directorio organizacional y cuentas personales de Microsoft**. Ahi el `iss`
+  del token trae el tenant de *quien inicia sesion*, no uno fijo, asi que
+  compararlo contra un valor unico rechazaria a casi todo el mundo.
+
+En multi-tenant, `AUTH_ISSUER_URI` se ignora y en su lugar se exige que el
+`iss` cumpla **exactamente** este patron (anclado, nada de coincidencias
+parciales):
+
+```
+^https://login\.microsoftonline\.com/<GUID-del-tenant>/v2\.0$
+```
+
+y que el claim `tid` sea **igual al GUID que viene dentro del `iss`**. Ese
+segundo chequeo es el que hace que "aceptar cualquier tenant" siga siendo
+seguro: sin el, aceptar cualquier directorio seria creerle al `iss` a secas;
+con el, el token tiene que ser internamente consistente, y como el `iss` va
+firmado nadie le puede cambiar el tenant a un token ajeno.
+
+Quedan rechazados los emisores con otro host (`login.microsoftonline.com.evil.com`),
+otro esquema (`http://`), sin `/v2.0`, con `common` en vez del GUID, o con
+cualquier cosa pegada al final. Las cuentas personales de Microsoft no son un
+caso aparte: Entra las emite con su propio tenant
+(`9188040d-6c67-4c5b-b112-36a304b66dad`), que cae por el mismo patron.
+
+`AUTH_ALLOWED_TENANTS` cierra ademas la puerta a una lista corta de directorios.
+Vacio acepta cualquier tenant que cumpla el patron; con valores, solo esos. Un
+GUID mal escrito ahi tumba el arranque, para no descubrirlo cuando alguien de
+ese directorio no pueda entrar.
+
+### De donde sale el usuarioId (`auth.identity-source`)
+
+Este servicio guarda un `usuarioId` **numerico** en sus tablas
+(`SalaParticipante`, `RespuestaSala`, `PartidaPuesto`). El `sub` de Microsoft
+Entra **no** es un numero: es un texto opaco tipo
+`AAAAAAAAAAAAAAAAAAAAAIkzqFVrSaSaFHy782bbtaQ`. Quien sabe traducir "este `sub`
+de Microsoft" a "el usuario 42" es usuarios-service.
+
+| `AUTH_IDENTITY_SOURCE` | De donde sale la identidad |
+|---|---|
+| `usuarios-service` (por defecto) | `GET {USUARIOS_SERVICE_URL}/api/usuarios/me`, reenviando el mismo token en el `Authorization`. De ahi salen el `usuarioId` y el **rol**. Es el unico modo que funciona con tokens reales de Entra |
+| `claims` | El `usuarioId` sale del `sub` y el rol de un claim. Es el comportamiento anterior; se conserva para desarrollo y pruebas sin usuarios-service arriba, y solo sirve si el emisor comparte el padron de usuarios de GrowLink |
+
+Un valor que no sea ninguno de los dos **tumba el arranque**: caer callado a
+`claims` dejaria el servicio aceptando el `sub` del token mientras uno cree que
+le esta preguntando a usuarios-service.
+
+Con `usuarios-service`, el rol del dashboard de admin tambien sale de esa
+consulta: `/api/metricas/dashboard` ya no depende del claim `rol`.
+
+**Cache.** La consulta esta en el camino de *cada* peticion autenticada, asi que
+se cachea `AUTH_IDENTITY_CACHE_SECONDS` segundos (60 por defecto). Tres detalles:
+
+- La clave es el **SHA-256 del token**, no el token: guardar el token entero en
+  memoria es guardar una credencial viva.
+- La entrada **nunca** vive mas alla del `exp` del token, pase lo que pase con
+  el TTL. Si no, un token vencido seguiria entrando por el cache.
+- Hay tope de 10 000 entradas con descarte del menos usado, para que el trafico
+  real (tokens que se renuevan) no llene la memoria.
+
+**Cuando usuarios-service falla.** Importa la diferencia:
+
+| Que pasa | Que responde trivia |
+|---|---|
+| usuarios-service devuelve 401/403 | **401**. El problema es del token |
+| No contesta, timeout o 5xx | **503** en REST, y el CONNECT del WebSocket se rechaza. El motivo queda en el log con el `X-Request-Id` |
+| Hay un valor vigente en cache | Se usa, aunque usuarios-service este caido |
+
+Lo que **nunca** pasa es caer al modo `claims` por una falla: eso convertiria
+una caida de usuarios-service en "aceptamos el token y le creemos al `sub`",
+justo lo que este modo viene a quitar. El WebSocket consulta solo al conectar y
+la identidad queda en el `Principal` de la sesion, asi que los handlers siguen
+ignorando cualquier `usuarioId` que venga en el mensaje.
+
+### Variables
+
+| Variable | Para que sirve |
+|---|---|
+| `AUTH_MODE` | `legacy` (por defecto) u `oidc` |
+| `AUTH_MULTI_TENANT` | `false` (por defecto) un emisor fijo, `true` cualquier tenant de Entra |
+| `AUTH_ISSUER_URI` | El emisor, obligatorio **solo** con `AUTH_MULTI_TENANT=false`. Se ignora con `true` |
+| `AUTH_AUDIENCE` | Obligatorio. **Lista separada por comas**: el token pasa si su `aud` coincide con alguna. Entra pone `api://<client-id>` o el `<client-id>` pelado segun como quede registrada la app, asi que conviene poner las dos |
+| `AUTH_ALLOWED_TENANTS` | Opcional, solo con multi-tenant. GUIDs de tenant separados por comas. Vacio = cualquier tenant que cumpla el patron |
+| `AUTH_JWKS_URI` | Opcional. Por defecto `<AUTH_ISSUER_URI>/.well-known/jwks.json` en single-tenant, y `https://login.microsoftonline.com/common/discovery/v2.0/keys` en multi-tenant (el "common" de Entra publica las llaves de todos los directorios) |
+| `AUTH_IDENTITY_SOURCE` | `usuarios-service` (por defecto) o `claims`. Un valor invalido tumba el arranque |
+| `USUARIOS_SERVICE_URL` | **Obligatoria** con `AUTH_IDENTITY_SOURCE=usuarios-service`; si falta, el arranque falla. Tiene que apuntar al mismo sitio que `USUARIOS_BASE_URL` |
+| `AUTH_IDENTITY_CACHE_SECONDS` | Opcional, cuanto vale una identidad ya resuelta (60). Nunca pasa del `exp` del token |
+| `AUTH_ROL_CLAIM` | Opcional, **solo con `AUTH_IDENTITY_SOURCE=claims`**, de que claim sale el rol que mira `exigirAdmin` para `/api/metricas/dashboard`. Por defecto `rol`, el mismo nombre que usa usuarios-service. Acepta texto suelto o lista |
+
+Las llaves publicas se bajan del JWKS y se cachean; si llega un `kid` que no
+esta en el cache se recarga, pero como maximo una vez por minuto, para que un
+token con un `kid` inventado no se convierta en una peticion al emisor por cada
+intento.
+
+### Ejemplo para Entra ID multi-tenant
+
+Registro de la app en Entra: *Supported account types* en **Accounts in any
+organizational directory and personal Microsoft accounts**, y la API expuesta
+como `api://<client-id>`.
+
+```bash
+AUTH_MODE=oidc
+AUTH_MULTI_TENANT=true
+AUTH_AUDIENCE=api://4c1a9f70-aaaa-bbbb-cccc-ddddeeeeffff,4c1a9f70-aaaa-bbbb-cccc-ddddeeeeffff
+
+# la identidad numerica y el rol salen de usuarios-service, porque el sub de Entra es opaco
+AUTH_IDENTITY_SOURCE=usuarios-service
+USUARIOS_SERVICE_URL=https://growlink-usuarios.azurewebsites.net
+AUTH_IDENTITY_CACHE_SECONDS=60
+
+# AUTH_ISSUER_URI no hace falta: el emisor sale del token
+# AUTH_JWKS_URI tampoco: por defecto usa el "common" de Entra
+# opcional, para limitar a dos directorios:
+# AUTH_ALLOWED_TENANTS=11111111-2222-3333-4444-555555555555,aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+```
+
+Y el mismo servicio contra un solo tenant (o contra otro proveedor de OIDC,
+Keycloak por ejemplo), que es el modo por defecto:
+
+```bash
+AUTH_MODE=oidc
+AUTH_MULTI_TENANT=false
+AUTH_ISSUER_URI=https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0
+AUTH_AUDIENCE=api://4c1a9f70-aaaa-bbbb-cccc-ddddeeeeffff
+```
+
 ## Despliegue
 
 El servicio se despliega en Azure App Service, el flujo de ramas y ambientes
@@ -171,6 +318,15 @@ Variables de entorno de la App Service:
 | `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | La base Postgres |
 | `GROWLINK_JWT_SECRET` | El mismo secreto que usa usuarios-service |
 | `GROWLINK_INTERNAL_KEY` | La misma llave interna que usuarios-service |
+| `AUTH_MODE` | `legacy` (por defecto) u `oidc`, ver [Autenticacion](#autenticacion-authmode) |
+| `AUTH_MULTI_TENANT` | `true` si la app esta registrada en Entra como multi-tenant |
+| `AUTH_ISSUER_URI` | El emisor, solo con `AUTH_MULTI_TENANT=false` |
+| `AUTH_AUDIENCE` | Obligatorio en modo `oidc`, lista separada por comas |
+| `AUTH_ALLOWED_TENANTS` | Opcional, GUIDs de los tenants que se aceptan |
+| `AUTH_JWKS_URI` | Opcional, de donde se bajan las llaves publicas |
+| `AUTH_IDENTITY_SOURCE` | `usuarios-service` (por defecto) o `claims` |
+| `USUARIOS_SERVICE_URL` | Obligatoria en modo `oidc` con `identity-source=usuarios-service` |
+| `AUTH_IDENTITY_CACHE_SECONDS` | Opcional, cache de identidades en segundos (60) |
 | `USUARIOS_BASE_URL` | URL de usuarios-service |
 | `CURSOS_BASE_URL` | URL de cursos-service |
 | `TRIVIA_BROKER_RELAY_ENABLED` | `true` para usar RabbitMQ (obligatorio si hay mas de una instancia) |

@@ -15,9 +15,62 @@ spring:
   jackson:
     default-property-inclusion: non_null
 
+# Actuator, con lo MINIMO abierto:
+#   health (+ las dos probes) porque el balanceador y el orquestador tienen que poder preguntar
+#     si la instancia esta viva y si ya puede recibir trafico. Las probes no se activan solas
+#     fuera de Kubernetes, hay que pedirlas a mano.
+#   prometheus porque es de donde el tablero saca las metricas del servicio.
+# Todo lo demas queda cerrado: /actuator/info, /actuator/metrics, /actuator/env, /actuator/beans,
+# etc. responden 404 (aunque actuator los traiga, no se exponen por web).
+#
+# show-details: never -> /actuator/health devuelve solo {"status":"UP"}. Sin esto el detalle
+# cuenta de mas a cualquiera que pregunte: el estado de la base de datos, el espacio en disco y
+# las piezas de las que depende el servicio, que es informacion util para quien lo quiera atacar.
+#
+# Estos endpoints quedan publicos: el servicio no monta una cadena de filtros de seguridad (ver
+# TokenService, la autenticacion se exige endpoint por endpoint), y RequestIdFilter y
+# InstanciaHeaderFilter solo agregan headers, no rechazan nada. Si algun dia se mete Spring
+# Security, /actuator/health/** tiene que quedar en permitAll para que el balanceador y el
+# orquestador sigan pudiendo preguntar si la instancia esta viva.
+#
+# /actuator/prometheus SI queda publico, y eso hay que cerrarlo por fuera del codigo. Lo que
+# expone no son credenciales, pero si el mapa interno del servicio (rutas, nombres de las salas
+# de metricas, volumen de trafico, memoria). Dos formas de restringirlo, en orden de preferencia:
+#
+#   1. Sacar el actuator a un puerto aparte que no se publique al internet, y dejar que solo lo
+#      alcance la red interna donde vive el scrape de Prometheus. Es lo mas limpio porque no
+#      depende de reglas en el proxy:
+#          management.server.port: 9090
+#          management.server.address: 127.0.0.1
+#      (ojo: con esto /actuator/health TAMBIEN se mueve a ese puerto, hay que apuntar ahi las
+#      probes del orquestador y el health check del balanceador)
+#   2. Dejarlo en el mismo puerto y bloquear /actuator/** en el gateway o el ingress, abriendo
+#      solo /actuator/health/** al balanceador y /actuator/prometheus al rango del scrape.
+#
+# Las dos son configuracion de despliegue, asi que quedan escritas aqui y no aplicadas.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
 logging:
   level:
     com.growlink.trivia: INFO
+  pattern:
+    # el X-Request-Id de la peticion (lo pone RequestIdFilter en el MDC) sale en cada linea de
+    # log, asi se puede seguir una peticion completa entre servicios y entre replicas
+    level: "%5p [${spring.application.name:trivia-service},%X{requestId:-}]"
 
 growlink:
   jwt:
@@ -49,6 +102,87 @@ trivia:
     # si se cae la conexion de un jugador (cerro la pestana, se le fue la red), este es el margen
     # que se espera antes de tratarlo como que salio de la sala, por si vuelve a unirse solo
     gracia-ms: ${TRIVIA_SALIDA_GRACIA_MS:8000}
+
+observabilidad:
+  # nombre de esta replica para la etiqueta comun "instancia" de las metricas. En Azure App
+  # Service la variable WEBSITE_INSTANCE_ID ya viene puesta; si esta vacia se usa el hostname
+  instancia: ${WEBSITE_INSTANCE_ID:}
+
+auth:
+  # legacy = como venia funcionando hasta ahora: la identidad del jugador viaja dentro del
+  # mensaje de STOMP (usuarioId en el payload) y el CONNECT no pide token.
+  # oidc    = el CONNECT de STOMP y los endpoints REST exigen un JWT valido del proveedor (firma
+  #           RS256 contra su JWKS, kid, exp, emisor y audiencia). En el WebSocket el sub del
+  #           token queda como Principal de la sesion y los handlers ignoran el usuarioId que
+  #           venga en el mensaje; en el REST pasa por TokenService y un token que no cuadra es 401.
+  # El valor por defecto es legacy a proposito, para no romper los clientes que ya existen
+  mode: ${AUTH_MODE:legacy}
+
+  # false = un solo emisor, el de AUTH_ISSUER_URI, comparado tal cual. Es el comportamiento de
+  #         siempre y el valor por defecto.
+  # true  = la app esta registrada en Entra ID como multi-tenant (cuentas de cualquier directorio
+  #         organizacional y cuentas personales de Microsoft). Ahi el iss del token trae el tenant
+  #         de QUIEN inicia sesion, no uno fijo, asi que compararlo contra AUTH_ISSUER_URI
+  #         rechazaria a casi todo el mundo. En su lugar se exige que el iss tenga exactamente la
+  #         forma del emisor v2 de Entra y que el claim tid cuadre con el GUID que viene dentro
+  #         del iss (ver EmisorPermitido). Con true, AUTH_ISSUER_URI se ignora.
+  multi-tenant: ${AUTH_MULTI_TENANT:false}
+
+  # De donde sale el usuarioId NUMERICO y el rol, una vez el token ya esta verificado.
+  #
+  # usuarios-service (por defecto) = se le pregunta a usuarios-service con
+  #     GET /api/usuarios/me, reenviando el mismo token. Es el unico modo que funciona con tokens
+  #     reales de Microsoft Entra: su sub es un texto opaco ("AAAAAAAA...IkzqFVrSaSa..."), no un
+  #     id, y el usuarioId que este servicio guarda en sus tablas (SalaParticipante, RespuestaSala,
+  #     PartidaPuesto) vive alla. El rol del dashboard de admin tambien sale de esa consulta.
+  # claims = el usuarioId sale del sub y el rol de un claim. Es el comportamiento anterior y se
+  #     conserva para desarrollo y pruebas sin usuarios-service arriba. Solo sirve si el emisor
+  #     comparte el padron de usuarios de GrowLink (el sub tiene que ser un numero).
+  #
+  # Un valor que no sea ninguno de los dos tumba el arranque: caer callado a claims seria quedar
+  # aceptando el sub del token creyendo que se esta preguntando a usuarios-service.
+  identity-source: ${AUTH_IDENTITY_SOURCE:usuarios-service}
+
+  # Donde esta usuarios-service para resolver la identidad. OBLIGATORIA con
+  # identity-source=usuarios-service: si falta, el arranque falla.
+  #
+  # Ojo: tiene que apuntar al mismo sitio que USUARIOS_BASE_URL (la que usa UsuariosRestClient
+  # para sumar las trivias ganadas). Son dos variables para el mismo servicio porque la
+  # configuracion de despliegue del equipo las nombra asi; si algun dia se unifican, esta es la
+  # que sobra.
+  usuarios-service-url: ${USUARIOS_SERVICE_URL:}
+
+  # Cuanto vale una identidad ya resuelta antes de volver a preguntar. Esta consulta esta en el
+  # camino de CADA peticion autenticada, asi que sin cache usuarios-service se vuelve el cuello de
+  # botella de todo. La entrada nunca vive mas alla del exp del token, pase lo que pase con este
+  # valor, y la clave es el SHA-256 del token y no el token (ver CacheDeIdentidades).
+  identity-cache-seconds: ${AUTH_IDENTITY_CACHE_SECONDS:60}
+
+  oidc:
+    # solo se usa con multi-tenant=false
+    issuer-uri: ${AUTH_ISSUER_URI:}
+
+    # Lista separada por comas: el token pasa si su aud coincide con ALGUNA. Entra pone
+    # "api://<client-id>" o el "<client-id>" pelado segun como quede registrada la app, y tener
+    # las dos puestas evita que un cambio en el portal rompa el login. Vacio NO se acepta: seria
+    # aceptar tokens emitidos para cualquier otra aplicacion del mismo proveedor.
+    audience: ${AUTH_AUDIENCE:}
+
+    # Solo con multi-tenant=true. GUIDs de tenant separados por comas: si esta vacio se acepta
+    # cualquier directorio que cumpla el patron del emisor, y si tiene valores solo esos. Un GUID
+    # mal escrito tumba el arranque, para no descubrirlo cuando alguien no pueda entrar.
+    allowed-tenants: ${AUTH_ALLOWED_TENANTS:}
+
+    # Si se deja vacio, el valor por defecto depende del modo:
+    #   multi-tenant=false -> el estandar de OIDC, <issuer-uri>/.well-known/jwks.json
+    #   multi-tenant=true  -> https://login.microsoftonline.com/common/discovery/v2.0/keys
+    #                         (el "common" de Entra publica las llaves de todos los directorios)
+    jwks-uri: ${AUTH_JWKS_URI:}
+    # Solo con identity-source=claims: de que claim del token sale el rol. Por defecto "rol", el
+    # mismo nombre que usa usuarios-service; cada proveedor lo llama distinto (roles, groups,
+    # realm_access.roles...). Con identity-source=usuarios-service el rol sale de la consulta a
+    # /api/usuarios/me y este valor no se usa.
+    rol-claim: ${AUTH_ROL_CLAIM:rol}
 
 usuarios:
   base-url: ${USUARIOS_BASE_URL:http://localhost:8080}

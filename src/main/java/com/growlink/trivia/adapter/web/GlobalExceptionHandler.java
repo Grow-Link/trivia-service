@@ -11,6 +11,7 @@ import com.growlink.trivia.application.RetoNoEncontradoException;
 import com.growlink.trivia.application.RevanchaNoDisponibleException;
 import com.growlink.trivia.application.SalaNoEncontradaException;
 import com.growlink.trivia.application.SalaYaEmpezoException;
+import com.growlink.trivia.application.UsuariosServiceNoDisponibleException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,6 +48,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({NoAutorizadoException.class, NoEsParticipanteException.class})
     public ResponseEntity<ErrorBody> handleNoAutorizado(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorBody(e.getMessage()));
+    }
+
+    // El token estaba bien pero usuarios-service no contesto, asi que no se sabe quien llama (ver
+    // IdentidadDesdeUsuariosService). Es 503 y no 401 a proposito: reintentar con el mismo token
+    // puede funcionar, pedir un login nuevo no arregla nada
+    @ExceptionHandler(UsuariosServiceNoDisponibleException.class)
+    public ResponseEntity<ErrorBody> handleUsuariosNoDisponible(UsuariosServiceNoDisponibleException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ErrorBody(e.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
