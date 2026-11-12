@@ -5,6 +5,9 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -20,11 +23,21 @@ import java.util.concurrent.atomic.AtomicReference;
 //
 // Cuenta las llamadas, que es lo que permite probar el cache: dos peticiones con el mismo token
 // tienen que dejar el contador en 1.
+//
+// Tambien atiende POST /api/interno/trivias-ganadas/{id} (lo que llama UsuariosRestClient al
+// terminar una partida) y guarda el X-Request-Id con que llego cada llamada, para probar que la
+// traza pasa de trivia a usuarios (ver ReenvioDeRequestId).
 public final class UsuariosServiceFalso implements AutoCloseable {
 
     private final HttpServer servidor;
     private final AtomicInteger llamadas = new AtomicInteger();
     private final AtomicReference<String> ultimoAuthorization = new AtomicReference<>();
+    private final AtomicReference<String> ultimoRequestIdDeMe = new AtomicReference<>();
+    // cada victoria que le avisaron: el usuarioId de la ruta y el X-Request-Id con que llego
+    private final BlockingQueue<Victoria> victorias = new LinkedBlockingQueue<>();
+
+    public record Victoria(long usuarioId, String requestId) {
+    }
 
     // que responder: estado HTTP, cuerpo, y cuanto demorar antes de contestar
     private final AtomicInteger estado = new AtomicInteger(200);
@@ -40,6 +53,7 @@ public final class UsuariosServiceFalso implements AutoCloseable {
         servidor.createContext("/api/usuarios/me", intercambio -> {
             llamadas.incrementAndGet();
             ultimoAuthorization.set(intercambio.getRequestHeaders().getFirst("Authorization"));
+            ultimoRequestIdDeMe.set(intercambio.getRequestHeaders().getFirst("X-Request-Id"));
             long demora = demoraMs.get();
             if (demora > 0) {
                 try {
@@ -54,6 +68,13 @@ public final class UsuariosServiceFalso implements AutoCloseable {
             try (OutputStream salida = intercambio.getResponseBody()) {
                 salida.write(respuesta);
             }
+        });
+        servidor.createContext("/api/interno/trivias-ganadas/", intercambio -> {
+            String ruta = intercambio.getRequestURI().getPath();
+            long usuarioId = Long.parseLong(ruta.substring(ruta.lastIndexOf('/') + 1));
+            victorias.add(new Victoria(usuarioId, intercambio.getRequestHeaders().getFirst("X-Request-Id")));
+            intercambio.sendResponseHeaders(204, -1);
+            intercambio.close();
         });
         servidor.start();
     }
@@ -104,6 +125,15 @@ public final class UsuariosServiceFalso implements AutoCloseable {
 
     public String ultimoAuthorization() {
         return ultimoAuthorization.get();
+    }
+
+    public String ultimoRequestIdDeMe() {
+        return ultimoRequestIdDeMe.get();
+    }
+
+    /** La siguiente victoria que le avisaron, esperando hasta `segundos`; null si no llego ninguna. */
+    public Victoria siguienteVictoria(long segundos) throws InterruptedException {
+        return victorias.poll(segundos, TimeUnit.SECONDS);
     }
 
     // apagarlo es lo que simula "usuarios-service esta caido": el puerto deja de aceptar

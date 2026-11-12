@@ -72,10 +72,11 @@ class ActuatorHealthTest {
                 .andExpect(jsonPath("$.details").doesNotExist());
     }
 
-    // las metricas se exponen en el mismo formato que ya raspa el resto del proyecto
+    // las metricas se exponen en el mismo formato que ya raspa el resto del proyecto, para quien trae el token del
+    // scrape (lo que pasa sin el lo prueba MetricasProtegidasTest)
     @Test
     void lasMetricasSalenEnFormatoPrometheus() throws Exception {
-        mockMvc.perform(get("/actuator/prometheus"))
+        mockMvc.perform(get("/actuator/prometheus").header("X-Metricas-Token", "token-de-metricas-solo-para-pruebas"))
                 .andExpect(status().isOk());
     }
 

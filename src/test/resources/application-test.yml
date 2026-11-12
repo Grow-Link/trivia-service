@@ -12,6 +12,10 @@ growlink:
   jwt:
     secret: secreto-de-pruebas-trivia-service-de-32-bytes-o-mas
 
+observabilidad:
+  # el token del scrape de Prometheus (ver TokenDeMetricasFilter y MetricasProtegidasTest)
+  metricas-token: token-de-metricas-solo-para-pruebas
+
 trivia:
   cierre-pregunta:
     # cortos para que las pruebas del barredor en tiempo real no tengan que esperar segundos

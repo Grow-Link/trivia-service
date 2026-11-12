@@ -1,13 +1,16 @@
 package com.growlink.trivia.application;
 
 import com.growlink.trivia.adapter.persistence.SalaPreguntaRepository;
+import com.growlink.trivia.config.RequestIdFilter;
 import com.growlink.trivia.domain.SalaPregunta;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.UUID;
 
 // Barredor de preguntas vencidas: corre en todas las replicas (ninguna tiene estado propio,
 // todo vive en la base de datos), por eso no se puede perder un cierre aunque una replica caiga.
@@ -39,10 +42,16 @@ public class CierrePreguntaScheduler {
         }
         // una sala con problemas no debe frenar el cierre de las demas en este mismo tick
         for (SalaPregunta activa : activas) {
+            // cada cierre tiene su propio X-Request-Id, como una peticion: si la pregunta vencida termina la partida, la
+            // llamada que le suma la victoria al ganador en usuarios-service lo lleva (ver ReenvioDeRequestId) y las dos
+            // lineas de log se pueden cruzar. El prefijo dice de donde salio
+            MDC.put(RequestIdFilter.MDC_KEY, "cierre-" + UUID.randomUUID());
             try {
                 juegoService.intentarCerrarPorTiempo(activa.getId());
             } catch (RuntimeException e) {
                 log.warn("No se pudo evaluar el cierre por tiempo de la pregunta {}", activa.getId(), e);
+            } finally {
+                MDC.remove(RequestIdFilter.MDC_KEY);
             }
         }
     }

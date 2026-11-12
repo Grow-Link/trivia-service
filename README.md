@@ -110,8 +110,27 @@ peticiones de verdad arranque la partida. No hace falta ningun lock a mano.
 ## Pruebas
 
 ```bash
-mvn test
+mvn test     # solo las pruebas
+mvn verify   # las pruebas y la cobertura: target/site/jacoco/index.html
 ```
+
+### Cobertura y SonarCloud en el CI
+
+`ci.yml` corre `mvn -B verify`, que con JaCoCo deja la cobertura en `target/site/jacoco/` (se puede bajar como
+artefacto `cobertura-trivia-service` desde el resumen de la corrida). Despues manda el analisis a SonarCloud, que lee
+ese mismo reporte (`jacoco.xml`) sin volver a correr las pruebas. El build no se cae por un porcentaje de cobertura:
+eso lo decide la puerta de calidad de SonarCloud.
+
+Mientras el repo no tenga el secreto `SONAR_TOKEN`, el paso de SonarCloud se **omite** con un aviso y el workflow queda
+en verde. Para prenderlo:
+
+1. En SonarCloud, importar el repo desde la organizacion de GitHub y, en *Administration > Analysis Method*, apagar
+   *Automatic Analysis* (si queda prendido, el analisis desde el CI falla).
+2. Crear un token en SonarCloud (*My Account > Security*) y guardarlo en GitHub como secreto del repo `SONAR_TOKEN`.
+3. El CI usa la organizacion `grow-link` y la clave `Grow-Link_trivia-service`, que son las que pone SonarCloud al
+   importar. Si quedaron distintas, poner las variables del repo `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY`.
+
+### Que prueba cada clase
 
 - `SalaWebSocketIntegrationTest`: conecta clientes STOMP reales y juega una
   partida completa de principio a fin, con las 5 preguntas.
@@ -305,7 +324,8 @@ AUTH_AUDIENCE=api://4c1a9f70-aaaa-bbbb-cccc-ddddeeeeffff
 El servicio se despliega en Azure App Service, el flujo de ramas y ambientes
 esta explicado en el README del repo `infra`. En resumen:
 
-- `ci.yml` corre las pruebas en cada push a `main`, `avance` o `final`.
+- `ci.yml` corre las pruebas, mide la cobertura y (si esta configurado) manda el analisis a SonarCloud en cada push
+  a `main`, `avance` o `final` y en cada pull request a `main`.
 - `cd.yml` despliega la rama a su ambiente de GitHub (`main` -> `actual`,
   `avance` -> `avance`, `final` -> `final`).
 - Hay un `Dockerfile` para correrlo como contenedor.
@@ -334,9 +354,16 @@ Variables de entorno de la App Service:
 | `TRIVIA_SALA_ACTIVA_MINUTOS` | Opcional, pasado este tiempo una sala sin terminar ya no cuenta como activa en el dashboard (120) |
 | `TRIVIA_CIERRE_MARGEN_MS` | Opcional, tolerancia en ms sobre la duracion de la sala antes de vencer una pregunta (1000) |
 | `TRIVIA_CIERRE_INTERVALO_MS` | Opcional, cada cuanto corre en ms el barredor que cierra preguntas vencidas (1000) |
+| `METRICAS_TOKEN` | El token con el que Prometheus lee `/actuator/prometheus` (el mismo en los tres servicios, minimo 16 caracteres). Sin el, las metricas quedan cerradas. Ver [Metricas para Prometheus](#metricas-para-prometheus) |
+| `SPRING_PROFILES_ACTIVE` | Opcional. En Azure no se pone (los logs salen en JSON); `logs-texto` es solo para leerlos a ojo en desarrollo |
 
 En la App Service hay que prender **Web sockets** (Configuration > General
 settings), si no la trivia en vivo no conecta.
+
+**Salud**: `GET /actuator/health`, `/actuator/health/liveness` y `/actuator/health/readiness` responden sin
+credenciales y sin detalles. `readiness` incluye la base de datos (una replica sin base responde 503 y el balanceador
+deja de mandarle trafico) y `liveness` no, a proposito: reiniciar la replica no arregla la base. Es la ruta que va en el
+health check de Azure y en el `docker-compose` (ver `ReadinessConLaBaseDeDatosTest`).
 
 ## Dashboard de metricas (HU-24)
 
@@ -356,6 +383,134 @@ externa de monitoreo:
 Con `?ultimosMinutos=N` la latencia, los empates y las partidas se cuentan solo
 sobre los ultimos N minutos. El front lo muestra en el panel del admin
 (`ConcurrenciaEnVivo`) y se actualiza solo cada 5 segundos.
+
+## Metricas para Prometheus
+
+`/actuator/prometheus` publica las metricas del servicio para los tableros de Grafana (repo `infra`, ADR-0009):
+`trivia.salas.creadas`, `trivia.jugadores.unidos` (sin contar a quien crea la sala), `trivia.partidas.terminadas`,
+`trivia.websocket.conexiones.activas`, las de la JVM y la latencia de cada peticion HTTP en cubetas fijas (10 ms a
+10 s), todas con la etiqueta `instancia` (`WEBSITE_INSTANCE_ID` en Azure, si no el nombre del host).
+
+Solo contesta con la cabecera `X-Metricas-Token: <METRICAS_TOKEN>` (`TokenDeMetricasFilter`); sin ella, 401. Antes
+quedaba abierto, y el nginx del front reenvia `/api-trivia/**` a este servicio, asi que cualquiera las podia leer desde
+el navegador. El filtro reconoce la ruta con el mismo analizador que Spring MVC: `/actuator/prometheus;x=1` o
+`/actuator/prometh%65us` tampoco entran sin el token. Sin `METRICAS_TOKEN` configurado queda cerrado para todos, y un
+token de menos de 16 caracteres no deja arrancar.
+
+```bash
+curl -H "X-Metricas-Token: $METRICAS_TOKEN" http://localhost:8085/actuator/prometheus
+```
+
+## Logs en JSON y X-Request-Id
+
+Cada linea de la salida es un objeto JSON (ver `logback-spring.xml`), con los mismos campos que usuarios-service y
+cursos-service, para que el almacen de logs (Azure Log Analytics) los filtre igual en los tres:
+
+| Campo | Que trae |
+|---|---|
+| `@timestamp` | Cuando paso, en UTC |
+| `level`, `logger_name`, `thread_name`, `message` | Lo de siempre |
+| `rid` | El `X-Request-Id` de la peticion o del mensaje del WebSocket (en el MDC se llama `requestId`) |
+| `servicio` | `trivia-service` |
+| `instancia` | La replica: el mismo valor que la cabecera `X-Instancia` |
+| `stack_trace` | Si hubo excepcion, dentro de la misma linea, con la causa raiz primero |
+
+Con el perfil `logs-texto` (`SPRING_PROFILES_ACTIVE=logs-texto`) sale el formato de texto de antes. El letrero de
+Spring esta apagado, porque no es JSON.
+
+**De donde sale el id**, que siempre hay uno mientras se atiende algo:
+
+- una peticion HTTP: `RequestIdFilter` (respeta el que venga, si es valido);
+- un mensaje del WebSocket (el CONNECT, cada "unirse", "responder"...): `RequestIdStompInterceptor`, uno por mensaje
+  (respeta un `X-Request-Id` valido que venga como cabecera nativa del frame);
+- el cierre por tiempo de una pregunta: `CierrePreguntaScheduler`, uno por cierre, con el prefijo `cierre-`.
+
+**Se les reenvia a los otros servicios** (`ReenvioDeRequestId`, en todos los `RestClient` del servicio): la llamada a
+usuarios-service que suma la trivia ganada, la consulta de la identidad en modo `oidc` (`/api/usuarios/me`) y la de
+categorias a cursos-service. Asi, la ultima respuesta de una partida y la victoria que le suma al ganador se encuentran
+en los logs de los dos servicios con un solo id.
+
+**Que id se acepta**: el mismo que en usuarios-service y cursos-service (ADR-0006): de 8 a 64 letras, numeros, punto,
+guion o guion bajo. Cualquier otra cosa se reemplaza por uno nuevo. Antes este servicio aceptaba hasta 120 caracteres
+y los dos puntos, y a lo que traia caracteres raros se los quitaba; con eso, un id que se aceptaba aqui lo cambiaban por
+otro al llegar a usuarios-service y la traza se partia justo entre servicios.
+
+## Prueba de carga: donde esta el cuello de botella
+
+Se busco con `npm run trivia` (repo `infra`, `scripts/carga`, ver el ADR-0013 de ese repo), que juega partidas
+completas por WebSocket con cada vez mas jugadores y mide la **respuesta**: desde que el jugador contesta hasta que le
+llega la confirmacion (`RESPUESTA_REGISTRADA`). Medido en local el 12-11-2026: una replica de trivia-service con H2 en
+memoria y broker en memoria, usuarios-service levantado, la carga desde la misma maquina, partidas de 10 preguntas.
+
+**1. Con el ritmo de una persona no hay cuello de botella.** Si cada jugador contesta entre 0 y 1,5 s despues de recibir
+la pregunta (lo normal), la carga se reparte en el tiempo:
+
+| Jugadores (salas de 5) | Respuesta p95, contestando en 0 a 1,5 s | Respuesta p95, todos contestando al instante |
+|---|---|---|
+| 100 | 22 ms | 74 ms |
+| 200 | 20 ms | 148 ms |
+| 400 | 25 ms | 356 ms |
+
+**2. El limite aparece cuando muchas respuestas llegan a la vez**, y crece en linea recta con cuantas son: cada
+respuesta se procesa entera por un camino de capacidad fija, y la ultima espera a que pasen todas las anteriores. Ese
+camino es:
+
+- un hilo del canal de entrada de STOMP, que Spring crea a razon de **2 por nucleo** (aqui 24; en una instancia de
+  1 vCPU, solo 2);
+- que toma una **conexion de la base** (10 en el pool de Hikari) durante toda la transaccion;
+- y hace **7 a 9 consultas** por respuesta (la que cierra la pregunta, unas 5 mas: cerrarla, el ranking, la siguiente),
+  de la cuarta en adelante **con el candado de la fila de la pregunta tomado**.
+
+Lo confirmaron volcados de hilos tomados durante la carga (400 jugadores contestando al instante): los 24 hilos del canal
+de entrada ocupados (23,1 en promedio), el **55 %** de ellos esperando una conexion de la base en `JuegoService.responder`
+y solo el 2,7 % esperando el candado de la pregunta. Subir el pool a 24 conexiones casi no cambia (356 → 287 ms): la
+espera se pasa al candado y a la CPU. El limite es el **trabajo por respuesta**, no un parametro.
+
+En una instancia chica pega antes. Con la JVM viendo un solo nucleo (`-XX:ActiveProcessorCount=1`, como una instancia de
+1 vCPU: 2 hilos de entrada):
+
+| Jugadores (salas de 5) | Respuesta p95, contestando en 0 a 1,5 s | Respuesta p95, todos al instante |
+|---|---|---|
+| 50 | 18 ms | 121 ms |
+| 100 | 19 ms | 271 ms |
+| 200 | - | 599 ms |
+
+**3. Las salas grandes tienen dos problemas mas.** Con 50 jugadores por sala, todos al instante:
+
+| Jugadores | Respuesta p95 | Reparto de la pregunta p95 (salas de 5: 3 a 12 ms) |
+|---|---|---|
+| 100 | 330 ms | 13 ms |
+| 200 | 613 ms | 319 ms |
+| 400 | 1.182 ms | 441 ms |
+
+- Las respuestas de una misma sala se ponen **en fila en el candado de su pregunta**, y mientras esperan tienen tomada
+  una conexion: el 29,4 % de los hilos esperaba ese candado (contra 2,7 % con salas de 5), y el pool se agota antes.
+- Cada `RESPUESTA_REGISTRADA` se manda **a toda la sala** aunque solo le sirve a quien respondio (el front filtra): con
+  n jugadores son n × n mensajes por pregunta, 2.500 en una sala de 50. Como cada jugador recibe sus mensajes en orden
+  (`setPreservePublishOrder`), la pregunta siguiente le llega detras de todos ellos: el reparto sube a 250 a 550 ms.
+
+**Lo que no se midio** y se deduce del codigo:
+
+- En Azure la base es Postgres por la red: cada consulta cuesta mas, asi que la conexion y el candado se tienen mas
+  tiempo y la misma curva sube antes. Hay que repetir la prueba alla (ADR-0013 en `infra`).
+- La llamada que suma la victoria a usuarios-service es HTTP sincrono (hasta 3 s para conectar y 5 s para leer) y corre
+  en el mismo hilo del canal de entrada, al terminar la partida. Con 2 hilos, dos partidas que terminan contra un
+  usuarios-service colgado frenarian toda la trivia de esa replica hasta 8 s.
+
+**Que haria, en orden de valor** (nada de esto esta hecho; son cambios de diseno o de despliegue para decidir):
+
+1. En Azure, trivia con al menos 2 vCPU por instancia, o fijar el pool del canal de entrada
+   (`configureClientInboundChannel(...).taskExecutor()`), con el pool de Hikari al menos de ese tamano y sin pasarse del
+   limite de conexiones de Postgres (instancias × pool).
+2. Mandar `RESPUESTA_REGISTRADA` solo a quien respondio (un destino por jugador) y no a toda la sala: quita los n × n
+   mensajes. Hay que cambiar tambien el front.
+3. Abaratar cada respuesta: menos consultas antes y dentro del candado (por ejemplo, un contador de respuestas en la
+   fila de la pregunta en vez de contarlas con `COUNT`, y no releer la sala y el participante en cada respuesta).
+4. Sacar la llamada de la victoria del hilo del canal de entrada (asincrona, con su propio pool).
+
+Para repetirlo: levantar el servicio, y en `infra/scripts/carga`
+`ETAPAS=100,200,400 POR_SALA=5 PREGUNTAS=10 ESPERA_MAX_MS=0 npm run trivia` (o `POR_SALA=50` para las salas grandes).
+Mientras corre, el tablero tecnico de Grafana muestra las conexiones a la base "esperando" y los hilos.
 
 ## Escalar a varias instancias
 
