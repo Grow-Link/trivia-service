@@ -6,7 +6,6 @@ import com.growlink.trivia.adapter.security.OidcTokenVerificador;
 import com.growlink.trivia.adapter.security.TokenInvalidoException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
@@ -50,14 +49,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             return message;
         }
 
-        // el X-Request-Id del CONNECT (si el cliente lo manda como header nativo de STOMP) entra
-        // al MDC solo mientras se atiende este frame, para que el "conexion aceptada/rechazada"
-        // quede en la misma traza que la peticion HTTP que trajo al jugador hasta aqui
-        String requestId = primerHeader(accessor, RequestIdFilter.HEADER);
-        boolean enElMdc = requestId != null && !requestId.isBlank();
-        if (enElMdc) {
-            MDC.put(RequestIdFilter.MDC_KEY, requestId);
-        }
+        // el X-Request-Id de este frame ya esta en el MDC: lo pone RequestIdStompInterceptor, que va
+        // antes en el canal de entrada (y lo valida con la misma regla que RequestIdFilter). Asi el
+        // "CONNECT aceptado/rechazado" y la consulta a usuarios-service quedan en la misma traza
         try {
             Long usuarioId = verificador.usuarioIdDe(primerHeader(accessor, "Authorization"));
             accessor.setUser(new JugadorPrincipal(usuarioId));
@@ -79,10 +73,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                     accessor.getSessionId(), e.getMessage());
             throw new MessageDeliveryException(message,
                     "CONNECT rechazado: no se pudo verificar la sesion, intente de nuevo");
-        } finally {
-            if (enElMdc) {
-                MDC.remove(RequestIdFilter.MDC_KEY);
-            }
         }
     }
 

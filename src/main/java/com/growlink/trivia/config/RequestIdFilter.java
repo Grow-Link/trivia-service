@@ -13,13 +13,19 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 // Un identificador por peticion para poder seguirla completa en los logs, incluso cuando pasa
 // por varios servicios (usuarios-service, cursos-service) o la atienden replicas distintas.
 //
 // Si el cliente (o el gateway, o el servicio que nos llama) ya manda X-Request-Id, se respeta
 // ese valor para que la traza sea la misma de punta a punta; si no viene, se genera un UUID.
-// En los dos casos vuelve en la respuesta, para que quien llamo sepa con que id reclamar.
+// En los dos casos vuelve en la respuesta, para que quien llamo sepa con que id reclamar, y se le
+// reenvia a usuarios-service y a cursos-service en cada llamada (ver ReenvioDeRequestId).
+//
+// La regla de que id se acepta es LA MISMA de usuarios-service y cursos-service (ADR-0006): de 8 a
+// 64 letras, numeros, punto, guion o guion bajo. Si aqui se aceptara uno que alla no, el id que
+// se les reenvia lo cambiarian por otro y la traza se partiria en dos justo entre servicios.
 //
 // Va primero en la cadena de filtros porque el valor tiene que estar en el MDC antes de que
 // cualquier otra cosa escriba un log (ver el patron logging.pattern.level en application.yml).
@@ -36,7 +42,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
-        String requestId = normalizar(request.getHeader(HEADER));
+        String requestId = idValidoONuevo(request.getHeader(HEADER));
         response.setHeader(HEADER, requestId);
         MDC.put(MDC_KEY, requestId);
         try {
@@ -48,16 +54,14 @@ public class RequestIdFilter extends OncePerRequestFilter {
         }
     }
 
-    // un header en blanco cuenta como que no vino. Tampoco se confia en su contenido tal cual:
-    // va a terminar en los logs, y un valor con saltos de linea podria inventar lineas falsas
-    private static String normalizar(String header) {
-        if (header == null || header.isBlank()) {
-            return UUID.randomUUID().toString();
-        }
-        String limpio = header.trim().replaceAll("[^A-Za-z0-9_.:-]", "");
-        if (limpio.isEmpty()) {
-            return UUID.randomUUID().toString();
-        }
-        return limpio.length() > 120 ? limpio.substring(0, 120) : limpio;
+    private static final Pattern VALIDO = Pattern.compile("^[A-Za-z0-9._-]{8,64}$");
+
+    /**
+     * El id tal cual si cumple la regla de los tres servicios, o uno nuevo (un UUID) si no viene o no la cumple. No se
+     * confia en lo que llega: va a terminar en los logs (un valor con saltos de linea podria inventar lineas falsas) y
+     * se les reenvia a los otros servicios. Un id invalido no se intenta arreglar: se reemplaza, como en los otros dos.
+     */
+    public static String idValidoONuevo(String entrante) {
+        return entrante != null && VALIDO.matcher(entrante).matches() ? entrante : UUID.randomUUID().toString();
     }
 }

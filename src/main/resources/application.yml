@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: trivia-service
+  main:
+    # los logs salen en JSON (ver logback-spring.xml) y el letrero de Spring no lo es: romperia la regla de que cada
+    # linea de la salida es un evento que el almacen de logs puede leer
+    banner-mode: "off"
   datasource:
     url: jdbc:postgresql://localhost:5436/trivia
     username: growlink
@@ -33,21 +37,11 @@ spring:
 # Security, /actuator/health/** tiene que quedar en permitAll para que el balanceador y el
 # orquestador sigan pudiendo preguntar si la instancia esta viva.
 #
-# /actuator/prometheus SI queda publico, y eso hay que cerrarlo por fuera del codigo. Lo que
-# expone no son credenciales, pero si el mapa interno del servicio (rutas, nombres de las salas
-# de metricas, volumen de trafico, memoria). Dos formas de restringirlo, en orden de preferencia:
-#
-#   1. Sacar el actuator a un puerto aparte que no se publique al internet, y dejar que solo lo
-#      alcance la red interna donde vive el scrape de Prometheus. Es lo mas limpio porque no
-#      depende de reglas en el proxy:
-#          management.server.port: 9090
-#          management.server.address: 127.0.0.1
-#      (ojo: con esto /actuator/health TAMBIEN se mueve a ese puerto, hay que apuntar ahi las
-#      probes del orquestador y el health check del balanceador)
-#   2. Dejarlo en el mismo puerto y bloquear /actuator/** en el gateway o el ingress, abriendo
-#      solo /actuator/health/** al balanceador y /actuator/prometheus al rango del scrape.
-#
-# Las dos son configuracion de despliegue, asi que quedan escritas aqui y no aplicadas.
+# /actuator/prometheus solo le contesta a quien trae el token del scrape en la cabecera
+# X-Metricas-Token (METRICAS_TOKEN, el mismo en los tres servicios y en Prometheus): lo que expone
+# no son credenciales, pero si el mapa interno del servicio (rutas, volumen de trafico, memoria), y
+# el servicio es publico por el nginx del front y por su propia URL en Azure. Ver
+# TokenDeMetricasFilter y el ADR-0009 del repo infra. Sin METRICAS_TOKEN queda cerrado para todos.
 management:
   endpoints:
     web:
@@ -58,18 +52,31 @@ management:
       probes:
         enabled: true
       show-details: never
+      group:
+        # Spring Boot NO mete la base en readiness por su cuenta: sin esto, una replica sin base seguia diciendo que
+        # estaba lista y el balanceador le seguia mandando trafico. Liveness, en cambio, no la mira a proposito:
+        # reiniciar la replica no arregla la base (ver ReadinessConLaBaseDeDatosTest)
+        readiness:
+          include: readinessState,db
   health:
     livenessstate:
       enabled: true
     readinessstate:
       enabled: true
+  metrics:
+    distribution:
+      # cubetas de latencia de las peticiones HTTP, para sacar el p95 por replica en el tablero. Son pocas y fijas
+      # (no el histograma completo de Micrometer) para no multiplicar las series por cada ruta y cada replica
+      slo:
+        http.server.requests: 10ms,25ms,50ms,100ms,250ms,500ms,1s,2500ms,5s,10s
 
+# Los logs salen en JSON, con el X-Request-Id en el campo rid de cada linea (ver logback-spring.xml): asi se puede
+# seguir una peticion o una partida completa entre servicios y entre replicas. El patron de abajo es el del perfil
+# logs-texto, para leerlos a ojo en desarrollo.
 logging:
   level:
     com.growlink.trivia: INFO
   pattern:
-    # el X-Request-Id de la peticion (lo pone RequestIdFilter en el MDC) sale en cada linea de
-    # log, asi se puede seguir una peticion completa entre servicios y entre replicas
     level: "%5p [${spring.application.name:trivia-service},%X{requestId:-}]"
 
 growlink:
@@ -107,6 +114,9 @@ observabilidad:
   # nombre de esta replica para la etiqueta comun "instancia" de las metricas. En Azure App
   # Service la variable WEBSITE_INSTANCE_ID ya viene puesta; si esta vacia se usa el hostname
   instancia: ${WEBSITE_INSTANCE_ID:}
+  # el token que tiene que traer Prometheus en la cabecera X-Metricas-Token (ver TokenDeMetricasFilter).
+  # Vacio = /actuator/prometheus cerrado
+  metricas-token: ${METRICAS_TOKEN:}
 
 auth:
   # legacy = como venia funcionando hasta ahora: la identidad del jugador viaja dentro del

@@ -99,7 +99,8 @@ class MetricasTest {
     // el scrape de Prometheus tiene que ver la etiqueta y los contadores, no solo el registro en memoria
     @Test
     void elScrapeDePrometheusTraeLaEtiquetaYLosContadores() throws Exception {
-        String cuerpo = mockMvc.perform(get("/actuator/prometheus"))
+        String cuerpo = mockMvc.perform(get("/actuator/prometheus")
+                        .header("X-Metricas-Token", "token-de-metricas-solo-para-pruebas"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
@@ -109,5 +110,18 @@ class MetricasTest {
         assertThat(cuerpo).contains("trivia_jugadores_unidos_total");
         assertThat(cuerpo).contains("trivia_partidas_terminadas_total");
         assertThat(cuerpo).contains("trivia_websocket_conexiones_activas");
+    }
+
+    // las cubetas de latencia de las peticiones HTTP, que es de donde el tablero saca el p95 por replica
+    @Test
+    void elScrapeTraeLasCubetasDeLatencia() throws Exception {
+        mockMvc.perform(get("/actuator/health"));
+
+        String cuerpo = mockMvc.perform(get("/actuator/prometheus")
+                        .header("X-Metricas-Token", "token-de-metricas-solo-para-pruebas"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(cuerpo).contains("http_server_requests_seconds_bucket{").contains("le=\"0.1\"");
     }
 }

@@ -34,26 +34,31 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     // como Optional y no con @Autowired(required=false) para que quede escrito en la firma que
     // puede no estar: en legacy el canal de entrada no lleva ningun interceptor nuevo
     private final Optional<StompAuthChannelInterceptor> autenticacion;
+    private final RequestIdStompInterceptor requestId;
 
     public WebSocketConfig(@Value("${trivia.broker.relay.enabled:false}") boolean relayActivo,
                            @Value("${trivia.broker.relay.host:localhost}") String relayHost,
                            @Value("${trivia.broker.relay.port:61613}") int relayPort,
                            @Value("${trivia.broker.relay.username:guest}") String relayUsuario,
                            @Value("${trivia.broker.relay.password:guest}") String relayClave,
-                           Optional<StompAuthChannelInterceptor> autenticacion) {
+                           Optional<StompAuthChannelInterceptor> autenticacion,
+                           RequestIdStompInterceptor requestId) {
         this.relayActivo = relayActivo;
         this.relayHost = relayHost;
         this.relayPort = relayPort;
         this.relayUsuario = relayUsuario;
         this.relayClave = relayClave;
         this.autenticacion = autenticacion;
+        this.requestId = requestId;
     }
 
-    // Por aqui pasa TODO lo que manda el cliente (el CONNECT y cada SEND). En modo oidc es donde
-    // se valida el token del CONNECT y se le pone el Principal a la sesion; en modo legacy no se
-    // engancha nada y el canal queda exactamente como estaba antes de esta HU
+    // Por aqui pasa TODO lo que manda el cliente (el CONNECT y cada SEND). Primero va el que le da
+    // a cada mensaje su X-Request-Id (para que todo lo que sigue, incluida la autenticacion, ya lo
+    // tenga en el log). En modo oidc despues se valida el token del CONNECT y se le pone el
+    // Principal a la sesion; en modo legacy no se engancha nada mas
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
+        registration.interceptors(requestId);
         autenticacion.ifPresent(registration::interceptors);
     }
 

@@ -63,15 +63,38 @@ class RequestIdTest {
     }
 
     // el valor va a terminar escrito en los logs: un header con saltos de linea podria inventar
-    // lineas de log falsas, asi que lo que no sea un id se limpia
+    // lineas de log falsas, asi que lo que no sea un id no llega al log: se reemplaza por uno nuevo
+    // (antes se le quitaban los caracteres raros; ahora es la misma regla de usuarios-service y
+    // cursos-service, para que el id que se les reenvia no lo cambien por otro al llegar)
     @Test
-    void unRequestIdConBasuraSeLimpiaAntesDeLlegarAlLog() throws Exception {
+    void unRequestIdConBasuraSeReemplazaAntesDeLlegarAlLog() throws Exception {
         MvcResult resultado = mockMvc.perform(get("/actuator/health")
                         .header("X-Request-Id", "traza\nfalsa WARN algo exploto"))
                 .andReturn();
 
         String devuelto = resultado.getResponse().getHeader("X-Request-Id");
-        assertThat(devuelto).isEqualTo("trazafalsaWARNalgoexploto");
+        assertThat(devuelto).doesNotContain("traza").doesNotContain("WARN");
+        assertThat(UUID.fromString(devuelto)).isNotNull();
+    }
+
+    // la regla de los tres servicios: de 8 a 64 letras, numeros, punto, guion o guion bajo
+    @Test
+    void seAceptaLoQueAceptanLosOtrosServiciosYNadaMas() throws Exception {
+        String justo8 = "abcd-123";
+        String justo64 = "a".repeat(64);
+        for (String valido : new String[]{justo8, justo64, "traza.con_punto-y-guion"}) {
+            assertThat(devueltoPara(valido)).as(valido).isEqualTo(valido);
+        }
+        for (String invalido : new String[]{"corto", "a".repeat(65), "con:dos:puntos", "con espacio"}) {
+            String devuelto = devueltoPara(invalido);
+            assertThat(devuelto).as(invalido).isNotEqualTo(invalido);
+            assertThat(UUID.fromString(devuelto)).isNotNull();
+        }
+    }
+
+    private String devueltoPara(String requestId) throws Exception {
+        return mockMvc.perform(get("/actuator/health").header("X-Request-Id", requestId))
+                .andReturn().getResponse().getHeader("X-Request-Id");
     }
 
     @Test

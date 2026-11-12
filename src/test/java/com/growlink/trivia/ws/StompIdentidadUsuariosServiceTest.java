@@ -104,6 +104,32 @@ class StompIdentidadUsuariosServiceTest {
         assertThat(USUARIOS.llamadas()).isEqualTo(1);
     }
 
+    // el X-Request-Id del CONNECT llega a usuarios-service al resolver la identidad (ver
+    // RequestIdStompInterceptor y ReenvioDeRequestId): la conexion se sigue de un servicio al otro
+    @Test
+    void elIdDelConnectLlegaAUsuariosServiceAlResolverLaIdentidad() throws Exception {
+        USUARIOS.responde(42L, "USUARIO");
+        StompHeaders headers = new StompHeaders();
+        headers.add("Authorization", "Bearer " + tokenConSub("sub-con-traza"));
+        headers.add("X-Request-Id", "connect-de-prueba-0001");
+
+        stompClient.connectAsync("ws://localhost:" + port + "/ws", new WebSocketHttpHeaders(), headers,
+                new StompSessionHandlerAdapter() {
+                }).get(10, TimeUnit.SECONDS);
+
+        assertThat(USUARIOS.ultimoRequestIdDeMe()).isEqualTo("connect-de-prueba-0001");
+    }
+
+    // sin id en el CONNECT, se le manda uno nuevo que usuarios-service acepta tal cual
+    @Test
+    void sinIdEnElConnectSeLeMandaUnoNuevoValido() throws Exception {
+        USUARIOS.responde(42L, "USUARIO");
+
+        conectarCon(tokenConSub("sub-sin-traza"));
+
+        assertThat(USUARIOS.ultimoRequestIdDeMe()).matches("^[A-Za-z0-9._-]{8,64}$");
+    }
+
     @Test
     void siUsuariosServiceNoReconoceElTokenNoSeAbreLaConexion() {
         USUARIOS.respondeConEstado(401);
