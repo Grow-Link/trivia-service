@@ -1,0 +1,46 @@
+name: Imagen
+
+# Construye la imagen de Docker de trivia-service y la sube a GitHub Container Registry
+# (ghcr.io/<organizacion>/trivia-service) cuando CI termina bien en main, o a mano desde la pestana Actions.
+# Es la imagen con la que trivia corre en Azure Container Apps, que (a diferencia de App Service con nuestra
+# suscripcion) puede escalar solo entre 1 y 3 replicas segun cuantas conexiones tenga (escenario D3).
+# No necesita ningun secreto: usa el token que GitHub le da a cada ejecucion. La primera vez, el paquete
+# queda privado: hay que ponerlo en publico (GitHub > Packages > trivia-service > Package settings) para que Azure lo baje.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  imagen:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bajar el codigo
+        uses: actions/checkout@v4
+        with:
+          # el commit que CI acaba de aprobar, no el ultimo de la rama
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Entrar a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y subir la imagen
+        run: |
+          DUENO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGEN="ghcr.io/${DUENO}/trivia-service"
+          SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          # la etiqueta lleva el SHA del commit: Azure solo baja de nuevo una imagen cuando cambia su nombre
+          docker build -t "$IMAGEN:$SHA" -t "$IMAGEN:main" .
+          docker push "$IMAGEN:$SHA"
+          docker push "$IMAGEN:main"
