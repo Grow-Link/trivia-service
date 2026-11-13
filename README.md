@@ -9,8 +9,11 @@ publicador ya puede agregar sus propias preguntas (HU-23).
 
 ```bash
 docker compose up -d   # Postgres en localhost:5436
-mvn spring-boot:run    # arranca en localhost:8085
+SPRING_DATASOURCE_PASSWORD=growlink mvn spring-boot:run   # arranca en localhost:8085
 ```
+
+La contrasena de la base ya no esta escrita en el codigo (SonarCloud la marcaba como secreto expuesto): se pasa con la variable
+`SPRING_DATASOURCE_PASSWORD`. La del Postgres de este `docker-compose.yml` es `growlink`.
 
 Para HU-23 tambien tiene que estar corriendo cursos-service (localhost:8086,
 se cambia con `cursos.base-url`) y hay que usar el mismo `GROWLINK_JWT_SECRET`
