@@ -6,6 +6,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,6 +32,11 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class UsuariosServiceFalso implements AutoCloseable {
 
     private final HttpServer servidor;
+    // Con el ejecutor por defecto (un solo hilo) una respuesta demorada bloquea las peticiones que
+    // vengan detras, asi que la prueba del timeout (4 s) dejaba colgada a la siguiente y volvia
+    // inestable dosPeticionesConElMismoTokenSoloPreguntanUnaVez. Un pool atiende cada intercambio
+    // en su propio hilo, que es como se porta un servidor de verdad.
+    private final ExecutorService ejecutor = Executors.newCachedThreadPool();
     private final AtomicInteger llamadas = new AtomicInteger();
     private final AtomicReference<String> ultimoAuthorization = new AtomicReference<>();
     private final AtomicReference<String> ultimoRequestIdDeMe = new AtomicReference<>();
@@ -76,6 +83,7 @@ public final class UsuariosServiceFalso implements AutoCloseable {
             intercambio.sendResponseHeaders(204, -1);
             intercambio.close();
         });
+        servidor.setExecutor(ejecutor);
         servidor.start();
     }
 
@@ -140,5 +148,6 @@ public final class UsuariosServiceFalso implements AutoCloseable {
     @Override
     public void close() {
         servidor.stop(0);
+        ejecutor.shutdownNow();
     }
 }
