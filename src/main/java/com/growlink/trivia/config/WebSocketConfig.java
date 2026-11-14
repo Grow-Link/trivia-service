@@ -29,6 +29,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final int relayPort;
     private final String relayUsuario;
     private final String relayClave;
+    private final long latidoEnvioMs;
+    private final long latidoRecepcionMs;
 
     // vacio con auth.mode=legacy, presente con auth.mode=oidc (ver AuthModeConfig). Se recibe
     // como Optional y no con @Autowired(required=false) para que quede escrito en la firma que
@@ -41,6 +43,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                            @Value("${trivia.broker.relay.port:61613}") int relayPort,
                            @Value("${trivia.broker.relay.username:guest}") String relayUsuario,
                            @Value("${trivia.broker.relay.password:guest}") String relayClave,
+                           @Value("${trivia.broker.relay.heartbeat-send-ms:10000}") long latidoEnvioMs,
+                           @Value("${trivia.broker.relay.heartbeat-receive-ms:10000}") long latidoRecepcionMs,
                            Optional<StompAuthChannelInterceptor> autenticacion,
                            RequestIdStompInterceptor requestId) {
         this.relayActivo = relayActivo;
@@ -48,6 +52,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         this.relayPort = relayPort;
         this.relayUsuario = relayUsuario;
         this.relayClave = relayClave;
+        this.latidoEnvioMs = latidoEnvioMs;
+        this.latidoRecepcionMs = latidoRecepcionMs;
         this.autenticacion = autenticacion;
         this.requestId = requestId;
     }
@@ -67,6 +73,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/ws").setAllowedOriginPatterns("*");
     }
 
+    // Los latidos del relay son los de la conexion de SISTEMA: la unica conexion TCP que esta instancia
+    // mantiene con RabbitMQ para publicar lo que sale de la aplicacion. Spring usa 10 s y 10 s por defecto, y
+    // sobre el valor de RECEPCION aplica un factor de 3: si RabbitMQ no le manda nada durante 30 s, da la
+    // conexion por muerta, la cierra y avisa con BrokerAvailabilityEvent available=false ("No messages received
+    // in 30000 ms"). Mientras esta caida, lo que la aplicacion publique se pierde: el relay solo lo anota en el
+    // log, nadie lo reintenta. Por eso los dos valores se pueden mover sin recompilar; con las variables sin
+    // poner quedan en los mismos 10 s de siempre.
+    //   heartbeat-send-ms:    cada cuanto le mandamos un latido a RabbitMQ (0 = no mandar)
+    //   heartbeat-receive-ms: cada cuanto le pedimos uno a el; la paciencia real es este valor x3 (0 = no vigilar)
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         if (relayActivo) {
@@ -76,7 +91,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                     .setClientLogin(relayUsuario)
                     .setClientPasscode(relayClave)
                     .setSystemLogin(relayUsuario)
-                    .setSystemPasscode(relayClave);
+                    .setSystemPasscode(relayClave)
+                    .setSystemHeartbeatSendInterval(latidoEnvioMs)
+                    .setSystemHeartbeatReceiveInterval(latidoRecepcionMs);
         } else {
             registry.enableSimpleBroker("/topic");
         }
