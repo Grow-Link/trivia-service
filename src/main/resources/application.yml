@@ -105,6 +105,13 @@ trivia:
       port: ${TRIVIA_BROKER_RELAY_PORT:61613}
       username: ${TRIVIA_BROKER_RELAY_USERNAME:guest}
       password: ${TRIVIA_BROKER_RELAY_PASSWORD:guest}
+      # Latidos de la conexion de sistema con RabbitMQ (la que usa la aplicacion para publicar), en ms.
+      # Los valores por defecto son los que Spring ya usaba, asi que sin estas variables nada cambia.
+      # El de recepcion se multiplica por 3 antes de cortar: con 10000, si RabbitMQ no manda nada en 30 s
+      # la conexion se da por muerta (BrokerAvailabilityEvent available=false) y lo que se publique
+      # mientras este caida se pierde. 0 apaga el latido (enviar) o la vigilancia (recibir).
+      heartbeat-send-ms: ${TRIVIA_BROKER_RELAY_HEARTBEAT_SEND_MS:10000}
+      heartbeat-receive-ms: ${TRIVIA_BROKER_RELAY_HEARTBEAT_RECEIVE_MS:10000}
   dashboard:
     # una sala que sigue esperando o en curso despues de este tiempo ya no se cuenta como activa
     sala-activa-minutos: ${TRIVIA_SALA_ACTIVA_MINUTOS:120}
